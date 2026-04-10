@@ -864,6 +864,17 @@ class PrecheckResult {
         possiblePlotDirections: json['可推进剧情方向'] ?? '',
         complianceReport: json['合规性报告'] ?? '',
       );
+
+  Map<String, dynamic> toJson() => {
+        'isPass': isPass,
+        'preMergedGraph': preMergedGraph,
+        '人设红线清单': redLines,
+        '设定禁区清单': forbiddenRules,
+        '可呼应伏笔清单': foreshadowList,
+        '潜在矛盾预警': conflictWarning,
+        '可推进剧情方向': possiblePlotDirections,
+        '合规性报告': complianceReport,
+      };
 }
 
 /// 质量评估结果
@@ -898,4 +909,15 @@ class QualityResult {
         report: json['评估报告'] ?? '',
         isPassed: json['是否合格'] ?? true,
       );
+
+  Map<String, dynamic> toJson() => {
+        '总分': totalScore,
+        '人设一致性得分': characterConsistencyScore,
+        '设定合规性得分': settingComplianceScore,
+        '剧情衔接度得分': plotCohesionScore,
+        '文风匹配度得分': styleMatchScore,
+        '内容质量得分': contentQualityScore,
+        '评估报告': report,
+        '是否合格': isPassed,
+      };
 }

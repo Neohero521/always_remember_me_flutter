@@ -12,8 +12,9 @@ class ImportScreen extends StatefulWidget {
 }
 
 class _ImportScreenState extends State<ImportScreen> {
-  String? _fileName;
   String? _fileContent;
+  String? _fileName;
+  final _titleController = TextEditingController();
   final _customRegexController = TextEditingController();
   final _wordCountController = TextEditingController(text: '3000');
   bool _isLoading = false;
@@ -38,7 +39,9 @@ class _ImportScreenState extends State<ImportScreen> {
         setState(() {
           _fileName = result.files.single.name;
           _fileContent = content;
-          _statusText = '已选择: ${result.files.single.name} (${content.length} 字)';
+          _fileName = result.files.single.name;
+          _statusText = '已选择: $_fileName (${content.length} 字)';
+          _titleController.text = _fileName?.replaceAll(RegExp(r'\.txt$', caseSensitive: false), '') ?? '';
         });
       }
     } catch (e) {
@@ -191,9 +194,26 @@ class _ImportScreenState extends State<ImportScreen> {
                           '已解析 ${provider.chapters.length} 个章节',
                           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700),
                         ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('前往章节管理 →'),
+                        ElevatedButton(
+                          onPressed: () async {
+                            final fileName = _fileName ?? '未命名';
+                            final title = _titleController.text.trim().isNotEmpty
+                                ? _titleController.text.trim()
+                                : null;
+                            final regex = _customRegexController.text.trim();
+                            final wordCount = int.tryParse(_wordCountController.text);
+                            await context.read<NovelProvider>().importBook(
+                              rawFileName: fileName,
+                              novelText: _fileContent!,
+                              customTitle: title,
+                              customRegex: regex.isNotEmpty ? regex : null,
+                              wordCount: wordCount,
+                            );
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                          child: const Text('保存到书架'),
                         ),
                       ],
                     ),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chapter.dart';
+import '../models/novel_book.dart';
 import '../models/knowledge_graph.dart';
 import '../services/chapter_service.dart';
 import '../services/novel_api_service.dart';
@@ -66,6 +67,10 @@ class NovelProvider extends ChangeNotifier {
   // === 进度 ===
   String _graphProgressText = '';
   String _writeProgressText = '';
+
+  // === 书架状态 ===
+  List<NovelBook> _bookshelf = [];
+  String? _currentBookId;
 
   // === API 服务（延迟初始化）===
   NovelApiService? _apiService;
@@ -925,6 +930,25 @@ class NovelProvider extends ChangeNotifier {
   }
 
   Future<void> _loadSettings() async {
+    // 0. 加载书架元数据
+    try {
+      _bookshelf = await _storage.loadBookshelf();
+      // 尝试加载上次阅读的书
+      final prefs = await SharedPreferences.getInstance();
+      final lastBookId = prefs.getString('last_book_id');
+      if (lastBookId != null && _bookshelf.any((b) => b.id == lastBookId)) {
+        _currentBookId = lastBookId;
+      } else if (_bookshelf.isNotEmpty) {
+        _currentBookId = _bookshelf.first.id;
+      }
+      // 加载当前书的内容数据
+      if (_currentBookId != null) {
+        await _loadBookData(_currentBookId!);
+      }
+    } catch (e) {
+      debugPrint('书架加载失败: $e');
+    }
+
     // 1. 先从 SharedPreferences 加载 API 配置（小数据，兼容旧版本）
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -944,52 +968,160 @@ class NovelProvider extends ChangeNotifier {
       debugPrint('SharedPreferences 加载失败: $e');
     }
 
-    // 2. 从 Hive 加载核心小说数据（P0 阻断问题修复）
-    try {
-      final novelData = await _storage.loadNovelData();
-      if (novelData != null) {
-        _chapters = novelData.chapters ?? [];
-        _chapterGraphMap = novelData.chapterGraphMap ?? {};
-        _continueChain = novelData.continueChain ?? [];
-        _continueIdCounter = novelData.continueIdCounter ?? 1;
-
-        // mergedGraph: JSON string → Map
-        if (novelData.mergedGraph != null && novelData.mergedGraph!.isNotEmpty) {
-          _mergedGraph = json.decode(novelData.mergedGraph!) as Map<String, dynamic>;
-        }
-
-        // batchMergedGraphs: List<String> → List<Map>
-        _batchMergedGraphs = (novelData.batchMergedGraphs ?? [])
-            .map((s) => json.decode(s) as Map<String, dynamic>)
-            .toList();
-
-        _lastParsedText = novelData.lastParsedText ?? '';
-        _currentRegexIndex = novelData.currentRegexIndex ?? 0;
-        _customRegex = novelData.customRegex ?? '';
-        _selectedBaseChapterId = novelData.selectedBaseChapterId ?? '';
-        _writePreview = novelData.writePreview ?? '';
-
-        if (novelData.precheckResult != null) {
-          _precheckResult = PrecheckResult.fromJson(novelData.precheckResult!);
-        }
-        if (novelData.qualityResult != null) {
-          _qualityResult = QualityResult.fromJson(novelData.qualityResult!);
-        }
-        _qualityResultShow = novelData.qualityResultShow ?? false;
-
-        if (novelData.graphCompliance != null) {
-          _graphComplianceResult = novelData.graphCompliance!['result'] as String?;
-          _graphCompliancePass = novelData.graphCompliance!['pass'] as bool?;
-        }
-      }
-    } catch (e) {
-      debugPrint('Hive 数据加载失败: $e');
-      // 损坏时走兜底，不崩溃
-    }
-
     notifyListeners();
     if (!_initCompleter.isCompleted) {
       _initCompleter.complete();
+    }
+  }
+
+  // === 书架相关 getter ===
+  List<NovelBook> get bookshelf => _bookshelf;
+  String? get currentBookId => _currentBookId;
+
+  /// 加载指定书籍的数据到内存
+  Future<void> _loadBookData(String bookId) async {
+    final data = await _storage.loadNovelDataForBook(bookId);
+    if (data != null) {
+      _chapters = data.chapters ?? [];
+      _chapterGraphMap = data.chapterGraphMap ?? {};
+      _continueChain = data.continueChain ?? [];
+      _continueIdCounter = data.continueIdCounter ?? 1;
+      if (data.mergedGraph != null && data.mergedGraph!.isNotEmpty) {
+        _mergedGraph = json.decode(data.mergedGraph!) as Map<String, dynamic>;
+      }
+      _batchMergedGraphs = (data.batchMergedGraphs ?? [])
+          .map((s) => json.decode(s) as Map<String, dynamic>).toList();
+      _lastParsedText = data.lastParsedText ?? '';
+      _currentRegexIndex = data.currentRegexIndex ?? 0;
+      _customRegex = data.customRegex ?? '';
+      _selectedBaseChapterId = data.selectedBaseChapterId ?? '';
+      _writePreview = data.writePreview ?? '';
+      if (data.precheckResult != null) {
+        _precheckResult = PrecheckResult.fromJson(data.precheckResult!);
+      }
+      if (data.qualityResult != null) {
+        _qualityResult = QualityResult.fromJson(data.qualityResult!);
+      }
+      _qualityResultShow = data.qualityResultShow ?? false;
+      if (data.graphCompliance != null) {
+        _graphComplianceResult = data.graphCompliance!['result'] as String?;
+        _graphCompliancePass = data.graphCompliance!['pass'] as bool?;
+      }
+    } else {
+      _chapters = [];
+      _chapterGraphMap = {};
+      _continueChain = [];
+      _mergedGraph = null;
+      _batchMergedGraphs = [];
+    }
+  }
+
+  /// 保存当前书籍数据到 Hive
+  Future<void> _saveCurrentBookData() async {
+    if (_currentBookId == null) return;
+    await _storage.saveNovelDataForBook(_currentBookId!, NovelPersistData(
+      chapters: _chapters,
+      chapterGraphMap: _chapterGraphMap,
+      continueChain: _continueChain,
+      continueIdCounter: _continueIdCounter,
+      mergedGraph: _mergedGraph != null ? const JsonEncoder.withIndent('  ').convert(_mergedGraph) : null,
+      batchMergedGraphs: _batchMergedGraphs.map((g) => const JsonEncoder.withIndent('  ').convert(g)).toList(),
+      lastParsedText: _lastParsedText,
+      currentRegexIndex: _currentRegexIndex,
+      customRegex: _customRegex,
+      selectedBaseChapterId: _selectedBaseChapterId,
+      writePreview: _writePreview,
+      precheckResult: _precheckResult?.toJson(),
+      qualityResult: _qualityResult?.toJson(),
+      qualityResultShow: _qualityResultShow,
+      graphCompliance: _graphComplianceResult != null ? {'result': _graphComplianceResult, 'pass': _graphCompliancePass} : null,
+    ));
+    // 更新书架元数据
+    final idx = _bookshelf.indexWhere((b) => b.id == _currentBookId);
+    if (idx >= 0) {
+      final ch = _chapters;
+      _bookshelf[idx] = _bookshelf[idx].copyWithMeta(
+        chapterCount: ch.length,
+        lastReadChapterId: _currentChapterId ?? 0,
+        readProgress: ch.isEmpty ? 0.0 : ((_currentChapterId ?? 0) / ch.length).clamp(0.0, 1.0),
+        lastReadAt: DateTime.now(),
+      );
+      await _storage.saveBookshelf(_bookshelf);
+    }
+  }
+
+  /// 切换到指定书籍
+  Future<void> selectBook(String bookId) async {
+    if (_currentBookId == bookId) return;
+    if (_currentBookId != null) {
+      await _saveCurrentBookData();
+    }
+    _currentBookId = bookId;
+    await _loadBookData(bookId);
+    // 保存当前书籍ID到 SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_book_id', bookId);
+    notifyListeners();
+  }
+
+  /// 导入新书（从 ImportScreen 调用）
+  Future<void> importBook({
+    required String rawFileName,
+    required String novelText,
+    String? customTitle,
+    String? customRegex,
+    int? wordCount,
+  }) async {
+    // 如果当前有书，先保存
+    if (_currentBookId != null) {
+      await _saveCurrentBookData();
+    }
+    final bookId = DateTime.now().millisecondsSinceEpoch.toString();
+    final book = NovelBook.fromImport(
+      id: bookId,
+      rawFileName: rawFileName,
+      customTitle: customTitle,
+    );
+    // 复用现有解析逻辑
+    if (customRegex != null && customRegex.isNotEmpty) {
+      _chapters = ChapterService.splitByRegex(novelText, customRegex);
+    } else if (wordCount != null) {
+      _chapters = ChapterService.splitByWordCount(novelText, wordCount);
+    } else {
+      _chapters = ChapterService.splitByRegex(novelText, '');
+    }
+    // 更新元数据
+    final updatedBook = book.copyWithMeta(chapterCount: _chapters.length);
+    _bookshelf.add(updatedBook);
+    await _storage.saveBookshelf(_bookshelf);
+    // 保存内容数据
+    await _saveCurrentBookData();
+    // 切换到新书
+    _currentBookId = bookId;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_book_id', bookId);
+    notifyListeners();
+  }
+
+  /// 删除书籍
+  Future<void> deleteBook(String bookId) async {
+    _bookshelf.removeWhere((b) => b.id == bookId);
+    await _storage.saveBookshelf(_bookshelf);
+    await _storage.deleteBookData(bookId);
+    if (_currentBookId == bookId) {
+      if (_bookshelf.isNotEmpty) {
+        await selectBook(_bookshelf.first.id);
+      } else {
+        _currentBookId = null;
+        _chapters = [];
+        _chapterGraphMap = {};
+        _continueChain = [];
+        _mergedGraph = null;
+        _batchMergedGraphs = [];
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('last_book_id');
+        notifyListeners();
+      }
     }
   }
 
@@ -1002,39 +1134,10 @@ class NovelProvider extends ChangeNotifier {
     );
   }
 
-  /// 实际执行 Hive 写入
+  /// 实际执行 Hive 写入（保存当前书籍数据）
   Future<void> _doPersist() async {
     try {
-      await _storage.saveNovelData(NovelPersistData(
-        chapters: _chapters,
-        chapterGraphMap: _chapterGraphMap,
-        continueChain: _continueChain,
-        continueIdCounter: _continueIdCounter,
-        mergedGraph: _mergedGraph != null
-            ? const JsonEncoder.withIndent('  ').convert(_mergedGraph)
-            : null,
-        batchMergedGraphs: _batchMergedGraphs
-            .map((g) => const JsonEncoder.withIndent('  ').convert(g))
-            .toList(),
-        lastParsedText: _lastParsedText,
-        currentRegexIndex: _currentRegexIndex,
-        customRegex: _customRegex,
-        selectedBaseChapterId: _selectedBaseChapterId,
-        writePreview: _writePreview,
-        precheckResult: _precheckResult != null
-            ? _precheckResultToJson(_precheckResult!)
-            : null,
-        qualityResult: _qualityResult != null
-            ? _qualityResultToJson(_qualityResult!)
-            : null,
-        qualityResultShow: _qualityResultShow,
-        graphCompliance: (_graphComplianceResult != null || _graphCompliancePass != null)
-            ? {
-                'result': _graphComplianceResult,
-                'pass': _graphCompliancePass,
-              }
-            : null,
-      ));
+      await _saveCurrentBookData();
     } catch (e) {
       debugPrint('Hive 持久化失败: $e');
     }

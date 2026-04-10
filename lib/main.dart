@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/novel_provider.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/bookshelf/bookshelf_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/chapters/chapters_screen.dart';
@@ -81,7 +82,7 @@ class _AppWithLoadingGuardState extends State<_AppWithLoadingGuard> {
     }
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: MaterialApp(
         title: '小说续写器',
         debugShowCheckedModeBanner: false,
@@ -113,6 +114,7 @@ class _MainShellState extends State<MainShell> {
   TabController? _tabController;
 
   final _screens = const [
+    BookshelfScreen(),
     HomeScreen(),
     ChaptersScreen(),
     WriteScreen(),
@@ -159,6 +161,11 @@ class _MainShellState extends State<MainShell> {
           _tabController?.animateTo(idx);
         },
         destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.library_books_outlined),
+            selectedIcon: Icon(Icons.library_books),
+            label: '书架',
+          ),
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
