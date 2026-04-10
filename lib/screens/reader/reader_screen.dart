@@ -38,6 +38,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   @override
   void dispose() {
+    // 保存阅读进度和字号
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = context.read<NovelProvider>();
+      final chapter = provider.chapters[_currentIndex];
+      provider.updateReaderState(
+        chapterId: chapter.id,
+        fontSize: provider.readerFontSize,
+      );
+    });
     _pageController.dispose();
     super.dispose();
   }

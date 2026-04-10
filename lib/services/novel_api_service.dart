@@ -475,26 +475,13 @@ class NovelApiService {
       }
     };
 
-    try {
-      final result = await generateRaw(
-        systemPrompt: systemPrompt,
-        userPrompt: userPrompt,
-        isJsonMode: true,
-        jsonSchema: jsonSchema,
-      );
-      return json.decode(result) as Map<String, dynamic>;
-    } catch (e) {
-      return {
-        '总分': 90,
-        '人设一致性得分': 90,
-        '设定合规性得分': 90,
-        '剧情衔接度得分': 90,
-        '文风匹配度得分': 90,
-        '内容质量得分': 90,
-        '评估报告': '质量评估执行失败，默认通过',
-        '是否合格': true,
-      };
-    }
+    final result = await generateRaw(
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt,
+      isJsonMode: true,
+      jsonSchema: jsonSchema,
+    );
+    return json.decode(result) as Map<String, dynamic>;
   }
 }
 

@@ -63,6 +63,7 @@ class NovelProvider extends ChangeNotifier {
   bool _isGeneratingGraph = false;
   bool _isGeneratingWrite = false;
   bool _stopFlag = false;
+  bool _isLoadingBook = false;
 
   // === 进度 ===
   String _graphProgressText = '';
@@ -102,6 +103,7 @@ class NovelProvider extends ChangeNotifier {
   bool get isGeneratingGraph => _isGeneratingGraph;
   bool get isGeneratingWrite => _isGeneratingWrite;
   bool get stopFlag => _stopFlag;
+  bool get isLoadingBook => _isLoadingBook;
   String get graphProgressText => _graphProgressText;
   String get writeProgressText => _writeProgressText;
 
@@ -240,6 +242,7 @@ class NovelProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('图谱生成失败: $e');
+      rethrow;
     } finally {
       _isGeneratingGraph = false;
       _graphProgressText = '';
@@ -253,10 +256,14 @@ class NovelProvider extends ChangeNotifier {
     _stopFlag = false;
     notifyListeners();
 
+    int successCount = 0;
+    int failCount = 0;
+    final List<String> failedChapterTitles = [];
+
     for (int i = 0; i < _chapters.length; i++) {
       if (_stopFlag) break;
       final chapter = _chapters[i];
-      _graphProgressText = '图谱生成进度: ${i + 1}/${_chapters.length}';
+      _graphProgressText = '图谱生成进度: ${i + 1}/${_chapters.length}（成功$successCount / 失败$failCount）';
       notifyListeners();
 
       if (!_chapterGraphMap.containsKey(chapter.id)) {
@@ -268,9 +275,14 @@ class NovelProvider extends ChangeNotifier {
           );
           _chapterGraphMap[chapter.id] = graph;
           _chapters[i] = _chapters[i].copyWith(hasGraph: true);
+          successCount++;
         } catch (e) {
           debugPrint('章节${chapter.title}图谱生成失败: $e');
+          failCount++;
+          failedChapterTitles.add(chapter.title);
         }
+      } else {
+        successCount++;
       }
 
       notifyListeners();
@@ -281,7 +293,11 @@ class NovelProvider extends ChangeNotifier {
 
     _isGeneratingGraph = false;
     _stopFlag = false;
-    _graphProgressText = '';
+    if (failCount > 0) {
+      _graphProgressText = '图谱生成完成：成功 $successCount 个，失败 $failCount 个（${failedChapterTitles.take(3).join("、")}${failCount > 3 ? "..." : ""}）';
+    } else {
+      _graphProgressText = '图谱生成完成：成功 $successCount 个';
+    }
     notifyListeners();
   }
 
@@ -335,6 +351,7 @@ class NovelProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('分批合并失败: $e');
+      rethrow;
     } finally {
       _isGeneratingGraph = false;
       _stopFlag = false;
@@ -366,6 +383,7 @@ class NovelProvider extends ChangeNotifier {
       _mergedGraph = merged;
     } catch (e) {
       debugPrint('全量图谱合并失败: $e');
+      rethrow;
     } finally {
       _isGeneratingGraph = false;
       _graphProgressText = '';
@@ -1097,8 +1115,12 @@ class NovelProvider extends ChangeNotifier {
       await _saveCurrentBookData();
     }
     _currentBookId = bookId;
+    _isLoadingBook = true;
+    notifyListeners();
     // 加载新书数据
     final hasData = await _loadBookData(bookId);
+    _isLoadingBook = false;
+    notifyListeners();
     // 保存当前书籍ID到 SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('last_book_id', bookId);

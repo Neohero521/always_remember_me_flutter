@@ -39,7 +39,6 @@ class _ImportScreenState extends State<ImportScreen> {
         setState(() {
           _fileName = result.files.single.name;
           _fileContent = content;
-          _fileName = result.files.single.name;
           _statusText = '已选择: $_fileName (${content.length} 字)';
           _titleController.text = _fileName?.replaceAll(RegExp(r'\.txt$', caseSensitive: false), '') ?? '';
         });
