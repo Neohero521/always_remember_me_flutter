@@ -1,0 +1,1064 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/chapter.dart';
+import '../models/knowledge_graph.dart';
+import '../services/chapter_service.dart';
+import '../services/novel_api_service.dart';
+import '../services/storage_service.dart';
+
+/// 全局状态管理
+class NovelProvider extends ChangeNotifier {
+  final StorageService _storage = StorageService();
+
+  final Completer<void> _initCompleter = Completer<void>();
+
+  NovelProvider() {
+    _loadSettings();
+  }
+
+  /// 等待初始化完成（main.dart 用 FutureBuilder 等这个）
+  Future<void> waitForInitialization() => _initCompleter.future;
+
+  // 防抖写入定时器（避免每次状态变更都触发 Hive IO）
+  Timer? _persistTimer;
+  static const _persistDebounceMs = 300;
+
+  // === 配置 ===
+  String _apiBaseUrl = '';
+  String _apiKey = '';
+  String _selectedModel = '';
+  int _writeWordCount = 2000;
+  bool _enableQualityCheck = true;
+  bool _autoUpdateGraphAfterWrite = true;
+
+  // === 阅读器状态 ===
+  int _readerFontSize = 16;
+  int? _currentChapterId;
+
+  // === 章节状态 ===
+  List<Chapter> _chapters = [];
+  int _currentRegexIndex = 0;
+  String _lastParsedText = '';
+  List<RegexMatchResult> _sortedRegexList = [];
+  String _customRegex = '';
+
+  // === 图谱状态 ===
+  Map<int, Map<String, dynamic>> _chapterGraphMap = {};
+  Map<String, dynamic>? _mergedGraph;
+  List<Map<String, dynamic>> _batchMergedGraphs = [];
+
+  // === 续写状态 ===
+  List<ContinueChapter> _continueChain = [];
+  int _continueIdCounter = 1;
+  String _selectedBaseChapterId = '';
+  String _writePreview = '';
+  PrecheckResult? _precheckResult;
+  QualityResult? _qualityResult;
+  bool _qualityResultShow = false;
+
+  // === 生成状态 ===
+  bool _isGeneratingGraph = false;
+  bool _isGeneratingWrite = false;
+  bool _stopFlag = false;
+
+  // === 进度 ===
+  String _graphProgressText = '';
+  String _writeProgressText = '';
+
+  // === API 服务（延迟初始化）===
+  NovelApiService? _apiService;
+
+  // Getters
+  String get apiBaseUrl => _apiBaseUrl;
+  String get apiKey => _apiKey;
+  String get selectedModel => _selectedModel;
+  int get writeWordCount => _writeWordCount;
+  bool get enableQualityCheck => _enableQualityCheck;
+  bool get autoUpdateGraphAfterWrite => _autoUpdateGraphAfterWrite;
+  int get readerFontSize => _readerFontSize;
+  int? get currentChapterId => _currentChapterId;
+  List<Chapter> get chapters => _chapters;
+  int get currentRegexIndex => _currentRegexIndex;
+  String get lastParsedText => _lastParsedText;
+  List<RegexMatchResult> get sortedRegexList => _sortedRegexList;
+  String get customRegex => _customRegex;
+  Map<int, Map<String, dynamic>> get chapterGraphMap => _chapterGraphMap;
+  Map<String, dynamic>? get mergedGraph => _mergedGraph;
+  List<Map<String, dynamic>> get batchMergedGraphs => _batchMergedGraphs;
+  List<ContinueChapter> get continueChain => _continueChain;
+  int get continueIdCounter => _continueIdCounter;
+  String get selectedBaseChapterId => _selectedBaseChapterId;
+  String get writePreview => _writePreview;
+  PrecheckResult? get precheckResult => _precheckResult;
+  QualityResult? get qualityResult => _qualityResult;
+  bool get qualityResultShow => _qualityResultShow;
+  bool get isGeneratingGraph => _isGeneratingGraph;
+  bool get isGeneratingWrite => _isGeneratingWrite;
+  bool get stopFlag => _stopFlag;
+  String get graphProgressText => _graphProgressText;
+  String get writeProgressText => _writeProgressText;
+
+  NovelApiService? get apiService {
+    if (_apiBaseUrl.isNotEmpty && _apiKey.isNotEmpty && _selectedModel.isNotEmpty) {
+      _apiService ??= NovelApiService(
+        baseUrl: _apiBaseUrl,
+        apiKey: _apiKey,
+        model: _selectedModel,
+      );
+    }
+    return _apiService;
+  }
+
+  // === 配置方法 ===
+  Future<void> updateConfig({
+    String? apiBaseUrl,
+    String? apiKey,
+    String? selectedModel,
+    int? writeWordCount,
+    bool? enableQualityCheck,
+    bool? autoUpdateGraphAfterWrite,
+  }) async {
+    if (apiBaseUrl != null) _apiBaseUrl = apiBaseUrl;
+    if (apiKey != null) _apiKey = apiKey;
+    if (selectedModel != null) _selectedModel = selectedModel;
+    if (writeWordCount != null) _writeWordCount = writeWordCount;
+    if (enableQualityCheck != null) _enableQualityCheck = enableQualityCheck;
+    if (autoUpdateGraphAfterWrite != null) _autoUpdateGraphAfterWrite = autoUpdateGraphAfterWrite;
+    _apiService = null;
+    await _saveSettings();
+    notifyListeners();
+  }
+
+  /// 更新阅读器状态（字号/当前章节）
+  Future<void> updateReaderState({int? fontSize, int? chapterId}) async {
+    if (fontSize != null) {
+      _readerFontSize = fontSize.clamp(12, 28);
+    }
+    if (chapterId != null) {
+      _currentChapterId = chapterId;
+    }
+    notifyListeners();
+    await _saveSettings();
+  }
+
+  // === 章节解析 ===
+  void parseChapters(String novelText, {String? customRegex}) {
+    final text = ChapterService.removeBOM(novelText);
+    String useRegex = '';
+
+    if (customRegex != null && customRegex.isNotEmpty) {
+      useRegex = customRegex;
+    } else {
+      if (_lastParsedText != text) {
+        _lastParsedText = text;
+        _sortedRegexList = ChapterService.getSortedRegexList(text);
+        _currentRegexIndex = 0;
+      } else {
+        _currentRegexIndex = (_currentRegexIndex + 1) % _sortedRegexList.length;
+      }
+      if (_sortedRegexList.isEmpty) return;
+      useRegex = _sortedRegexList[_currentRegexIndex].preset.regex;
+    }
+
+    _chapters = ChapterService.splitByRegex(text, useRegex);
+    _customRegex = customRegex ?? '';
+    _chapterGraphMap = {};
+    _mergedGraph = null;
+    _continueChain = [];
+    _continueIdCounter = 1;
+    _selectedBaseChapterId = '';
+    _writePreview = '';
+    _precheckResult = null;
+    _qualityResult = null;
+    _batchMergedGraphs = [];
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  void parseChaptersByWordCount(String novelText, int wordCount) {
+    final text = ChapterService.removeBOM(novelText);
+    _chapters = ChapterService.splitByWordCount(text, wordCount);
+    _chapterGraphMap = {};
+    _mergedGraph = null;
+    _continueChain = [];
+    _continueIdCounter = 1;
+    _selectedBaseChapterId = '';
+    _writePreview = '';
+    _precheckResult = null;
+    _qualityResult = null;
+    _lastParsedText = '';
+    _batchMergedGraphs = [];
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  void selectBaseChapter(String chapterId) {
+    _selectedBaseChapterId = chapterId;
+    _precheckResult = null;
+    _writePreview = '';
+    _qualityResult = null;
+    _qualityResultShow = false;
+    notifyListeners();
+  }
+
+  Chapter? getChapterById(int id) {
+    try {
+      return _chapters.firstWhere((c) => c.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // === 图谱生成 ===
+  Future<void> generateGraphForChapter(int chapterId) async {
+    if (apiService == null) return;
+    final chapter = getChapterById(chapterId);
+    if (chapter == null) return;
+
+    _isGeneratingGraph = true;
+    _stopFlag = false;
+    _graphProgressText = '正在生成图谱...';
+    notifyListeners();
+
+    try {
+      final graph = await apiService!.generateSingleChapterGraph(
+        chapterId: chapter.id,
+        chapterTitle: chapter.title,
+        chapterContent: chapter.content,
+      );
+      _chapterGraphMap[chapterId] = graph;
+      final idx = _chapters.indexWhere((c) => c.id == chapterId);
+      if (idx >= 0) {
+        _chapters[idx] = _chapters[idx].copyWith(hasGraph: true);
+      }
+    } catch (e) {
+      debugPrint('图谱生成失败: $e');
+    } finally {
+      _isGeneratingGraph = false;
+      _graphProgressText = '';
+      notifyListeners();
+    }
+  }
+
+  Future<void> generateGraphsForAllChapters() async {
+    if (apiService == null) return;
+    _isGeneratingGraph = true;
+    _stopFlag = false;
+    notifyListeners();
+
+    for (int i = 0; i < _chapters.length; i++) {
+      if (_stopFlag) break;
+      final chapter = _chapters[i];
+      _graphProgressText = '图谱生成进度: ${i + 1}/${_chapters.length}';
+      notifyListeners();
+
+      if (!_chapterGraphMap.containsKey(chapter.id)) {
+        try {
+          final graph = await apiService!.generateSingleChapterGraph(
+            chapterId: chapter.id,
+            chapterTitle: chapter.title,
+            chapterContent: chapter.content,
+          );
+          _chapterGraphMap[chapter.id] = graph;
+          _chapters[i] = _chapters[i].copyWith(hasGraph: true);
+        } catch (e) {
+          debugPrint('章节${chapter.title}图谱生成失败: $e');
+        }
+      }
+
+      notifyListeners();
+      if (i < _chapters.length - 1 && !_stopFlag) {
+        await Future.delayed(const Duration(milliseconds: 1000));
+      }
+    }
+
+    _isGeneratingGraph = false;
+    _stopFlag = false;
+    _graphProgressText = '';
+    notifyListeners();
+  }
+
+  void stopGraphGeneration() {
+    _stopFlag = true;
+    _isGeneratingGraph = false;
+    _graphProgressText = '';
+    notifyListeners();
+  }
+
+  // === 图谱合并 ===
+  Future<void> batchMergeGraphs({int batchSize = 50}) async {
+    if (apiService == null) return;
+    final sortedChapters = [..._chapters]..sort((a, b) => a.id - b.id);
+    final graphList = sortedChapters
+        .map((c) => _chapterGraphMap[c.id])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+
+    if (graphList.isEmpty) return;
+
+    _batchMergedGraphs = [];
+    _isGeneratingGraph = true;
+    _stopFlag = false;
+    notifyListeners();
+
+    final batches = <List<Map<String, dynamic>>>[];
+    for (int i = 0; i < graphList.length; i += batchSize) {
+      batches.add(graphList.sublist(
+        i,
+        (i + batchSize).clamp(0, graphList.length),
+      ));
+    }
+
+    try {
+      for (int i = 0; i < batches.length; i++) {
+        if (_stopFlag) break;
+        _graphProgressText = '分批合并进度: ${i + 1}/${batches.length}';
+        notifyListeners();
+
+        final merged = await apiService!.batchMergeGraphs(
+          graphList: batches[i],
+          batchNumber: i + 1,
+          totalBatches: batches.length,
+        );
+        _batchMergedGraphs.add(merged);
+
+        if (i < batches.length - 1 && !_stopFlag) {
+          await Future.delayed(const Duration(milliseconds: 1500));
+        }
+      }
+    } catch (e) {
+      debugPrint('分批合并失败: $e');
+    } finally {
+      _isGeneratingGraph = false;
+      _stopFlag = false;
+      _graphProgressText = '';
+      notifyListeners();
+      _schedulePersist();
+    }
+  }
+
+  Future<void> mergeAllGraphs() async {
+    if (apiService == null) return;
+
+    List<Map<String, dynamic>> graphList;
+    if (_batchMergedGraphs.isNotEmpty) {
+      graphList = _batchMergedGraphs;
+    } else {
+      graphList = _chapterGraphMap.values.toList();
+    }
+
+    if (graphList.isEmpty) return;
+
+    _isGeneratingGraph = true;
+    _graphProgressText = '正在合并全量图谱...';
+    _stopFlag = false;
+    notifyListeners();
+
+    try {
+      final merged = await apiService!.mergeAllGraphs(graphList: graphList);
+      _mergedGraph = merged;
+    } catch (e) {
+      debugPrint('全量图谱合并失败: $e');
+    } finally {
+      _isGeneratingGraph = false;
+      _graphProgressText = '';
+      notifyListeners();
+      _schedulePersist();
+    }
+  }
+
+  // === 图谱导入导出 ===
+  String exportChapterGraphsJson() {
+    final exportData = {
+      'exportTime': DateTime.now().toIso8601String(),
+      'chapterCount': _chapters.length,
+      'chapterGraphMap': _chapterGraphMap,
+    };
+    return const JsonEncoder.withIndent('  ').convert(exportData);
+  }
+
+  void importChapterGraphsJson(String jsonString) {
+    try {
+      final data = json.decode(jsonString) as Map<String, dynamic>;
+      final importedMap =
+          data['chapterGraphMap'] as Map<String, dynamic>? ?? {};
+      for (final entry in importedMap.entries) {
+        final key = int.tryParse(entry.key);
+        if (key != null) {
+          _chapterGraphMap[key] = entry.value as Map<String, dynamic>;
+        }
+      }
+      // 更新章节 hasGraph 状态
+      for (int i = 0; i < _chapters.length; i++) {
+        if (_chapterGraphMap.containsKey(_chapters[i].id)) {
+          _chapters[i] = _chapters[i].copyWith(hasGraph: true);
+        }
+      }
+      notifyListeners();
+      _schedulePersist();
+    } catch (e) {
+      debugPrint('图谱导入失败: $e');
+    }
+  }
+
+  // === 图谱状态校验 ===
+  Map<String, dynamic> getChapterGraphStatus() {
+    int hasGraphCount = 0;
+    List<String> noGraphTitles = [];
+    for (final chapter in _chapters) {
+      if (_chapterGraphMap.containsKey(chapter.id)) {
+        hasGraphCount++;
+      } else {
+        noGraphTitles.add(chapter.title);
+      }
+    }
+    return {
+      'totalCount': _chapters.length,
+      'hasGraphCount': hasGraphCount,
+      'noGraphCount': _chapters.length - hasGraphCount,
+      'noGraphTitles': noGraphTitles,
+    };
+  }
+
+  // === 续写前置校验 ===
+  Future<PrecheckResult?> runPrecheck(int baseChapterId,
+      {String? modifiedContent, bool useBaseChapter = false}) async {
+    if (apiService == null) return null;
+
+    final baseId = baseChapterId;
+    // 取基准章节及前5章（共6章）的图谱
+    final preChapters = _chapters
+        .where((c) => c.id <= baseId && c.id >= (baseId - 5))
+        .toList();
+    final preGraphList = preChapters
+        .map((c) => _chapterGraphMap[c.id])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+
+    try {
+      final result = await apiService!.precheckContinuation(
+        baseChapterId: baseChapterId,
+        preGraphList: preGraphList,
+        modifiedChapterContent: modifiedContent,
+      );
+      _precheckResult = PrecheckResult.fromJson(result);
+      notifyListeners();
+      return _precheckResult;
+    } catch (e) {
+      debugPrint('前置校验失败: $e');
+      return null;
+    }
+  }
+
+  // === 续写生成（基准章节续写） ===
+  Future<String?> generateWrite({String? modifiedContent}) async {
+    if (apiService == null || _selectedBaseChapterId.isEmpty) return null;
+
+    final baseChapterId = int.tryParse(_selectedBaseChapterId) ?? 0;
+    final baseChapter = getChapterById(baseChapterId);
+    if (baseChapter == null) return null;
+
+    final baseContent = modifiedContent ?? baseChapter.content;
+    final baseParagraphs =
+        baseContent.split('\n').where((p) => p.trim().isNotEmpty).toList();
+    final baseLastParagraph =
+        baseParagraphs.isNotEmpty ? baseParagraphs.last.trim() : '';
+
+    _isGeneratingWrite = true;
+    _stopFlag = false;
+    _writeProgressText = '正在执行前置校验...';
+    notifyListeners();
+
+    try {
+      // 执行前置校验
+      final preResult = await runPrecheck(
+        baseChapterId,
+        modifiedContent: modifiedContent,
+        useBaseChapter: true,  // 包含基准章节本身
+      );
+      final precheck = preResult ??
+          PrecheckResult(
+            isPass: true,
+            preMergedGraph: {},
+            redLines: '无',
+            forbiddenRules: '无',
+            foreshadowList: '无明确可呼应伏笔',
+            conflictWarning: '无',
+            possiblePlotDirections: '推进主线剧情',
+            complianceReport: '直接续写',
+          );
+
+      final useGraph = precheck.preMergedGraph.isNotEmpty
+          ? precheck.preMergedGraph
+          : (_mergedGraph ?? {});
+
+      final systemPrompt = '''小说续写规则（100%遵守）：
+人设锁定：续写内容必须完全贴合小说的核心人物设定，严格遵守人设红线：${precheck.redLines}
+设定合规：严格遵守设定禁区：${precheck.forbiddenRules}
+文本衔接：续写内容必须紧接在基准章节的最后一段之后开始，基准章节最后一段是："$baseLastParagraph"
+剧情承接：合理呼应伏笔：${precheck.foreshadowList}，开启新章节
+文风统一：完全贴合原文的叙事风格、语言习惯、节奏特点
+字数要求：约$_writeWordCount字，误差不超过10%
+矛盾规避：${precheck.conflictWarning}
+输出要求：只输出续写的正文内容，不要任何标题、章节名、解释''';
+
+      final userPrompt =
+          '小说核心设定知识图谱：${json.encode(useGraph)}\n基准章节内容：$baseContent\n请基于以上内容，按照规则续写后续的章节正文。';
+
+      _writeProgressText = '正在生成续写章节...';
+      notifyListeners();
+
+      String continueContent = await apiService!.generateContinuation(
+        systemPrompt: systemPrompt,
+        userPrompt: userPrompt,
+        targetWordCount: _writeWordCount,
+      );
+
+      if (_stopFlag) {
+        _writePreview = '';
+        return null;
+      }
+
+      // 质量评估
+      if (_enableQualityCheck) {
+        _writeProgressText = '正在执行质量校验...';
+        notifyListeners();
+
+        final quality = await apiService!.evaluateQuality(
+          continueContent: continueContent,
+          precheckResult: {
+            'isPass': precheck.isPass,
+            '人设红线清单': precheck.redLines,
+            '设定禁区清单': precheck.forbiddenRules,
+            '可呼应伏笔清单': precheck.foreshadowList,
+            '潜在矛盾预警': precheck.conflictWarning,
+            '可推进剧情方向': precheck.possiblePlotDirections,
+          },
+          baseGraph: useGraph,
+          baseChapterContent: baseContent,
+          targetWordCount: _writeWordCount,
+        );
+        _qualityResult = QualityResult.fromJson(quality);
+        _qualityResultShow = true;
+
+        if (!_qualityResult!.isPassed && !_stopFlag) {
+          _writeProgressText = '质量不合格，正在重新生成...';
+          notifyListeners();
+          continueContent = await apiService!.generateContinuation(
+            systemPrompt:
+                '$systemPrompt\n注意：本次续写必须修正以下问题：${_qualityResult!.report}',
+            userPrompt: userPrompt,
+            targetWordCount: _writeWordCount,
+          );
+          _qualityResult = null;
+        }
+      }
+
+      _writePreview = continueContent;
+
+      // 添加到续写链条
+      final newChapter = ContinueChapter(
+        id: _continueIdCounter++,
+        title: '续写章节 ${_continueChain.length + 1}',
+        content: continueContent,
+        baseChapterId: baseChapterId,
+      );
+      _continueChain.add(newChapter);
+
+      // 续写后自动生成图谱（如果开启）
+      if (_autoUpdateGraphAfterWrite) {
+        updateGraphWithContinueContent(newChapter.id, continueContent);
+      }
+
+      _writeProgressText = '';
+      notifyListeners();
+      return continueContent;
+    } catch (e) {
+      debugPrint('续写生成失败: $e');
+      _writeProgressText = '';
+      return null;
+    } finally {
+      _isGeneratingWrite = false;
+      _stopFlag = false;
+      notifyListeners();
+      _schedulePersist();
+    }
+  }
+
+  // === 续写（从链条中已有章节继续写） ===
+  Future<String?> continueFromChain(int targetChainId) async {
+    if (apiService == null || _selectedBaseChapterId.isEmpty) return null;
+
+    final targetChapter = _continueChain
+        .where((c) => c.id == targetChainId)
+        .firstOrNull;
+    if (targetChapter == null) return null;
+
+    final baseChapterId = int.tryParse(_selectedBaseChapterId) ?? 0;
+    final baseChapter = getChapterById(baseChapterId);
+    final baseContent = baseChapter?.content ?? '';
+
+    final targetContent = targetChapter.content;
+    final targetParagraphs =
+        targetContent.split('\n').where((p) => p.trim().isNotEmpty).toList();
+    final targetLastParagraph =
+        targetParagraphs.isNotEmpty ? targetParagraphs.last.trim() : '';
+
+    _isGeneratingWrite = true;
+    _stopFlag = false;
+    _writeProgressText = '正在从链条章节继续续写...';
+    notifyListeners();
+
+    try {
+      final preResult = await runPrecheck(baseChapterId);
+      final precheck = preResult ??
+          PrecheckResult(
+            isPass: true,
+            preMergedGraph: {},
+            redLines: '无',
+            forbiddenRules: '无',
+            foreshadowList: '无明确可呼应伏笔',
+            conflictWarning: '无',
+            possiblePlotDirections: '推进主线剧情',
+            complianceReport: '直接续写',
+          );
+
+      final useGraph = precheck.preMergedGraph.isNotEmpty
+          ? precheck.preMergedGraph
+          : (_mergedGraph ?? {});
+
+      // 构建前文上下文（包含链条中目标章节及前1章）
+      String fullContext = '';
+      final preBaseChapters = _chapters
+          .where((c) => c.id < baseChapterId && c.id >= (baseChapterId - 2))
+          .toList();
+      for (final c in preBaseChapters) {
+        fullContext += '$c.title\n${c.content}\n\n';
+      }
+      if (baseChapter != null) {
+        fullContext += '$baseChapter.title\n$baseContent\n\n';
+      }
+      final targetBeforeChapters = _continueChain
+          .where((c) => c.id <= targetChainId && c.id > (targetChainId - 2))
+          .toList();
+      for (int i = 0; i < targetBeforeChapters.length; i++) {
+        final c = targetBeforeChapters[i];
+        fullContext += '续写章节 ${i + 1}\n${c.content}\n\n';
+      }
+
+      final systemPrompt = '''小说续写规则（100%遵守）：
+人设锁定：续写内容必须完全贴合小说的核心人物设定，严格遵守人设红线：${precheck.redLines}
+设定合规：严格遵守设定禁区：${precheck.forbiddenRules}
+文本衔接：续写内容必须紧接在上一章（续写章节 ${targetChapter.title}）的最后一段之后开始，上一章最后一段是："$targetLastParagraph"
+剧情承接：合理呼应伏笔：${precheck.foreshadowList}，开启新章节，不重复前文情节
+文风统一：完全贴合原文的叙事风格、语言习惯、节奏特点
+字数要求：约$_writeWordCount字，误差不超过10%
+矛盾规避：${precheck.conflictWarning}
+输出要求：只输出续写的正文内容，不要任何标题、章节名、解释''';
+
+      final userPrompt =
+          '小说核心设定知识图谱：${json.encode(useGraph)}\n完整前文上下文：$fullContext\n请基于以上完整的前文内容和知识图谱，按照规则续写后续的新章节正文。';
+
+      _writeProgressText = '正在生成续写章节...';
+      notifyListeners();
+
+      String continueContent = await apiService!.continueFromChainChapter(
+        systemPrompt: systemPrompt,
+        userPrompt: userPrompt,
+        targetWordCount: _writeWordCount,
+      );
+
+      if (_stopFlag) return null;
+
+      // 更新链条中的章节内容
+      final chainIdx =
+          _continueChain.indexWhere((c) => c.id == targetChainId);
+      if (chainIdx >= 0) {
+        _continueChain[chainIdx] =
+            _continueChain[chainIdx].copyWith(content: continueContent);
+      }
+
+      _writePreview = continueContent;
+
+      // 添加新章节到链条
+      final newChapter = ContinueChapter(
+        id: _continueIdCounter++,
+        title: '续写章节 ${_continueChain.length + 1}',
+        content: continueContent,
+        baseChapterId: baseChapterId,
+      );
+      _continueChain.add(newChapter);
+
+      _writeProgressText = '';
+      notifyListeners();
+      return continueContent;
+    } catch (e) {
+      debugPrint('链条续写失败: $e');
+      _writeProgressText = '';
+      return null;
+    } finally {
+      _isGeneratingWrite = false;
+      _stopFlag = false;
+      notifyListeners();
+      _schedulePersist();
+    }
+  }
+
+  void stopWrite() {
+    _stopFlag = true;
+    _isGeneratingWrite = false;
+    _writeProgressText = '';
+    notifyListeners();
+  }
+
+  void clearWritePreview() {
+    _writePreview = '';
+    _qualityResult = null;
+    _qualityResultShow = false;
+    notifyListeners();
+  }
+
+  void removeContinueChapter(int chainId) {
+    _continueChain.removeWhere((c) => c.id == chainId);
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  void clearContinueChain() {
+    _continueChain = [];
+    _continueIdCounter = 1;
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  void clearBatchMergedGraphs() {
+    _batchMergedGraphs = [];
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  void clearMergedGraph() {
+    _mergedGraph = null;
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  // === 图谱合规性校验 ===
+  String? _graphComplianceResult;
+  bool? _graphCompliancePass;
+
+  String? get graphComplianceResult => _graphComplianceResult;
+  bool? get graphCompliancePass => _graphCompliancePass;
+
+  /// 校验图谱完整性（字段齐全 + 字数≥1200）
+  void validateGraphCompliance() {
+    final graph = _mergedGraph;
+    if (graph == null) {
+      _graphCompliancePass = false;
+      _graphComplianceResult = '图谱尚未合并，请先生成合并图谱';
+      notifyListeners();
+      return;
+    }
+
+    // 检查必填字段
+    const fullRequiredFields = [
+      '全局基础信息', '人物信息库', '世界观设定库', '全剧情时间线',
+      '全局文风标准', '全量实体关系网络', '反向依赖图谱', '逆向分析与质量评估',
+    ];
+    final missing = fullRequiredFields.where((f) => !graph.containsKey(f)).toList();
+
+    // 检查字数
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(graph);
+    final wordCount = jsonStr.length;
+
+    if (missing.isNotEmpty) {
+      _graphCompliancePass = false;
+      _graphComplianceResult = '图谱合规性校验不通过，缺少必填字段：${missing.join("、")}，请重新生成/合并图谱';
+    } else if (wordCount < 1200) {
+      _graphCompliancePass = false;
+      _graphComplianceResult = '图谱合规性校验不通过，内容字数不足，当前字数：$wordCount，最低要求：1200字，请重新生成图谱';
+    } else {
+      final score = graph['逆向分析与质量评估']?['全文本逻辑自洽性得分'] ?? 0;
+      _graphCompliancePass = true;
+      _graphComplianceResult = '图谱合规性校验通过，所有必填字段完整，内容字数：$wordCount字，全文本逻辑自洽性得分：$score/100';
+    }
+    notifyListeners();
+  }
+
+  /// 检验所有章节的图谱生成状态
+  Map<String, dynamic> validateChapterGraphStatus() {
+    if (_chapters.isEmpty) {
+      return {
+        'total': 0,
+        'hasGraph': 0,
+        'noGraph': 0,
+        'noGraphTitles': <String>[],
+      };
+    }
+
+    int hasGraphCount = 0;
+    final List<String> noGraphTitles = [];
+
+    for (final chapter in _chapters) {
+      final hasGraph = _chapterGraphMap.containsKey(chapter.id);
+      // 同步更新章节对象的hasGraph标记
+      chapter.hasGraph = hasGraph;
+      if (hasGraph) {
+        hasGraphCount++;
+      } else {
+        noGraphTitles.add(chapter.title);
+      }
+    }
+
+    return {
+      'total': _chapters.length,
+      'hasGraph': hasGraphCount,
+      'noGraph': _chapters.length - hasGraphCount,
+      'noGraphTitles': noGraphTitles,
+    };
+  }
+
+  // === 魔改章节图谱更新 ===
+  /// 用户修改章节内容后，重新生成该章节的图谱
+  Future<Map<String, dynamic>?> updateModifiedChapterGraph(
+    int chapterId,
+    String modifiedContent,
+  ) async {
+    if (apiService == null) return null;
+    final chapter = getChapterById(chapterId);
+    if (chapter == null) return null;
+
+    _isGeneratingGraph = true;
+    _graphProgressText = '正在更新魔改章节图谱...';
+    notifyListeners();
+
+    try {
+      // 用新的内容生成图谱
+      final graph = await apiService!.generateSingleChapterGraph(
+        chapterId: chapterId,
+        chapterTitle: chapter.title,
+        chapterContent: modifiedContent,
+        isModified: true,
+      );
+      _chapterGraphMap[chapterId] = graph;
+
+      // 更新章节内容
+      final idx = _chapters.indexWhere((c) => c.id == chapterId);
+      if (idx >= 0) {
+        _chapters[idx] = _chapters[idx].copyWith(
+          content: modifiedContent,
+          hasGraph: true,
+        );
+      }
+
+      _graphProgressText = '';
+      notifyListeners();
+      return graph;
+    } catch (e) {
+      debugPrint('魔改章节图谱更新失败: $e');
+      _graphProgressText = '';
+      return null;
+    } finally {
+      _isGeneratingGraph = false;
+      notifyListeners();
+      _schedulePersist();
+    }
+  }
+
+  // === 续写章节图谱更新 ===
+  /// 为续写章节生成图谱
+  Future<Map<String, dynamic>?> updateGraphWithContinueContent(
+    int continueId,
+    String continueContent,
+  ) async {
+    if (apiService == null) return null;
+
+    _isGeneratingGraph = true;
+    _graphProgressText = '正在为续写章节生成图谱...';
+    notifyListeners();
+
+    try {
+      final graph = await apiService!.generateSingleChapterGraph(
+        chapterId: continueId,
+        chapterTitle: '续写章节 $continueId',
+        chapterContent: continueContent,
+      );
+      // 续写章节图谱用特殊key存储
+      _chapterGraphMap[-continueId] = graph;
+
+      _graphProgressText = '';
+      notifyListeners();
+      return graph;
+    } catch (e) {
+      debugPrint('续写章节图谱更新失败: $e');
+      _graphProgressText = '';
+      return null;
+    } finally {
+      _isGeneratingGraph = false;
+      notifyListeners();
+      _schedulePersist();
+    }
+  }
+
+  // === 持久化 ===
+  Future<bool> _saveSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('novel_app_settings', json.encode({
+        'apiBaseUrl': _apiBaseUrl,
+        'apiKey': _apiKey,
+        'selectedModel': _selectedModel,
+        'writeWordCount': _writeWordCount,
+        'enableQualityCheck': _enableQualityCheck,
+        'autoUpdateGraphAfterWrite': _autoUpdateGraphAfterWrite,
+        'readerFontSize': _readerFontSize,
+        'currentChapterId': _currentChapterId,
+      }));
+      debugPrint('设置保存成功');
+      return true;
+    } catch (e, st) {
+      debugPrint('设置保存失败: $e $st');
+      rethrow;
+    }
+  }
+
+  Future<void> _loadSettings() async {
+    // 1. 先从 SharedPreferences 加载 API 配置（小数据，兼容旧版本）
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = prefs.getString('novel_app_settings');
+      if (data != null) {
+        final map = json.decode(data) as Map<String, dynamic>;
+        _apiBaseUrl = map['apiBaseUrl'] ?? '';
+        _apiKey = map['apiKey'] ?? '';
+        _selectedModel = map['selectedModel'] ?? '';
+        _writeWordCount = map['writeWordCount'] ?? 2000;
+        _enableQualityCheck = map['enableQualityCheck'] ?? true;
+        _autoUpdateGraphAfterWrite = map['autoUpdateGraphAfterWrite'] ?? true;
+        _readerFontSize = map['readerFontSize'] ?? 16;
+        _currentChapterId = map['currentChapterId'] as int?;
+      }
+    } catch (e) {
+      debugPrint('SharedPreferences 加载失败: $e');
+    }
+
+    // 2. 从 Hive 加载核心小说数据（P0 阻断问题修复）
+    try {
+      final novelData = await _storage.loadNovelData();
+      if (novelData != null) {
+        _chapters = novelData.chapters ?? [];
+        _chapterGraphMap = novelData.chapterGraphMap ?? {};
+        _continueChain = novelData.continueChain ?? [];
+        _continueIdCounter = novelData.continueIdCounter ?? 1;
+
+        // mergedGraph: JSON string → Map
+        if (novelData.mergedGraph != null && novelData.mergedGraph!.isNotEmpty) {
+          _mergedGraph = json.decode(novelData.mergedGraph!) as Map<String, dynamic>;
+        }
+
+        // batchMergedGraphs: List<String> → List<Map>
+        _batchMergedGraphs = (novelData.batchMergedGraphs ?? [])
+            .map((s) => json.decode(s) as Map<String, dynamic>)
+            .toList();
+
+        _lastParsedText = novelData.lastParsedText ?? '';
+        _currentRegexIndex = novelData.currentRegexIndex ?? 0;
+        _customRegex = novelData.customRegex ?? '';
+        _selectedBaseChapterId = novelData.selectedBaseChapterId ?? '';
+        _writePreview = novelData.writePreview ?? '';
+
+        if (novelData.precheckResult != null) {
+          _precheckResult = PrecheckResult.fromJson(novelData.precheckResult!);
+        }
+        if (novelData.qualityResult != null) {
+          _qualityResult = QualityResult.fromJson(novelData.qualityResult!);
+        }
+        _qualityResultShow = novelData.qualityResultShow ?? false;
+
+        if (novelData.graphCompliance != null) {
+          _graphComplianceResult = novelData.graphCompliance!['result'] as String?;
+          _graphCompliancePass = novelData.graphCompliance!['pass'] as bool?;
+        }
+      }
+    } catch (e) {
+      debugPrint('Hive 数据加载失败: $e');
+      // 损坏时走兜底，不崩溃
+    }
+
+    notifyListeners();
+    if (!_initCompleter.isCompleted) {
+      _initCompleter.complete();
+    }
+  }
+
+  /// 防抖持久化：状态变更后延迟 _persistDebounceMs 写入 Hive
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(
+      const Duration(milliseconds: _persistDebounceMs),
+      _doPersist,
+    );
+  }
+
+  /// 实际执行 Hive 写入
+  Future<void> _doPersist() async {
+    try {
+      await _storage.saveNovelData(NovelPersistData(
+        chapters: _chapters,
+        chapterGraphMap: _chapterGraphMap,
+        continueChain: _continueChain,
+        continueIdCounter: _continueIdCounter,
+        mergedGraph: _mergedGraph != null
+            ? const JsonEncoder.withIndent('  ').convert(_mergedGraph)
+            : null,
+        batchMergedGraphs: _batchMergedGraphs
+            .map((g) => const JsonEncoder.withIndent('  ').convert(g))
+            .toList(),
+        lastParsedText: _lastParsedText,
+        currentRegexIndex: _currentRegexIndex,
+        customRegex: _customRegex,
+        selectedBaseChapterId: _selectedBaseChapterId,
+        writePreview: _writePreview,
+        precheckResult: _precheckResult != null
+            ? _precheckResultToJson(_precheckResult!)
+            : null,
+        qualityResult: _qualityResult != null
+            ? _qualityResultToJson(_qualityResult!)
+            : null,
+        qualityResultShow: _qualityResultShow,
+        graphCompliance: (_graphComplianceResult != null || _graphCompliancePass != null)
+            ? {
+                'result': _graphComplianceResult,
+                'pass': _graphCompliancePass,
+              }
+            : null,
+      ));
+    } catch (e) {
+      debugPrint('Hive 持久化失败: $e');
+    }
+  }
+
+  Map<String, dynamic> _precheckResultToJson(PrecheckResult r) => {
+    'isPass': r.isPass,
+    'preMergedGraph': r.preMergedGraph,
+    '人设红线清单': r.redLines,
+    '设定禁区清单': r.forbiddenRules,
+    '可呼应伏笔清单': r.foreshadowList,
+    '潜在矛盾预警': r.conflictWarning,
+    '可推进剧情方向': r.possiblePlotDirections,
+    '合规性报告': r.complianceReport,
+  };
+
+  Map<String, dynamic> _qualityResultToJson(QualityResult r) => {
+    '总分': r.totalScore,
+    '人设一致性得分': r.characterConsistencyScore,
+    '设定合规性得分': r.settingComplianceScore,
+    '剧情衔接度得分': r.plotCohesionScore,
+    '文风匹配度得分': r.styleMatchScore,
+    '内容质量得分': r.contentQualityScore,
+    '评估报告': r.report,
+    '是否合格': r.isPassed,
+  };
+}

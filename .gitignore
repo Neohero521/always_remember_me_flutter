@@ -1,0 +1,27 @@
+# Built files
+*.apk
+*.aab
+build/
+.gradle/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pub
+.packages
+.pub/
+.dart_tool/
+pubspec.lock
+
+# Logs
+*.log
+
+# Secrets
+*.env
+.env
