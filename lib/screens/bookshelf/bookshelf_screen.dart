@@ -1,10 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/novel_provider.dart';
+import '../../models/novel_book.dart';
 import '../import/import_screen.dart';
 
-class BookshelfScreen extends StatelessWidget {
+class BookshelfScreen extends StatefulWidget {
   const BookshelfScreen({super.key});
+
+  @override
+  State<BookshelfScreen> createState() => _BookshelfScreenState();
+}
+
+class _BookshelfScreenState extends State<BookshelfScreen> {
+  bool _isLoading = false; // 加载锁，防止异步期间重复点击
+
+  Future<void> _selectBook(BuildContext context, NovelBook book) async {
+    if (_isLoading) return;
+
+    final provider = context.read<NovelProvider>();
+
+    // 书架点击时：先保存当前书，再切换
+    setState(() => _isLoading = true);
+    try {
+      await provider.selectBook(book.id);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+
+    if (!mounted) return;
+    // 切换到首页 Tab
+    DefaultTabController.of(context).animateTo(1);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,6 +48,22 @@ class BookshelfScreen extends StatelessWidget {
       body: Consumer<NovelProvider>(
         builder: (context, provider, _) {
           final books = provider.bookshelf;
+
+          if (_isLoading) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF8B6914)),
+                  SizedBox(height: 16),
+                  Text(
+                    '正在加载...',
+                    style: TextStyle(color: Color(0xFF2C2416)),
+                  ),
+                ],
+              ),
+            );
+          }
 
           if (books.isEmpty) {
             return Center(
@@ -61,35 +103,8 @@ class BookshelfScreen extends StatelessWidget {
               final book = books[index];
               return _BookCard(
                 book: book,
-                onTap: () async {
-                  await provider.selectBook(book.id);
-                  if (context.mounted) {
-                    // 切换到首页 Tab
-                    DefaultTabController.of(context).animateTo(1);
-                  }
-                },
-                onDelete: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('删除书籍'),
-                      content: Text('确定要删除《${book.title}》吗？所有章节和图谱数据将一并删除。'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text('取消'),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text('删除', style: TextStyle(color: Colors.red)),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (confirm == true && context.mounted) {
-                    await provider.deleteBook(book.id);
-                  }
-                },
+                onTap: () => _selectBook(context, book),
+                onDelete: () => _confirmDelete(context, book),
               );
             },
           );
@@ -107,10 +122,33 @@ class BookshelfScreen extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _confirmDelete(BuildContext context, NovelBook book) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除书籍'),
+        content: Text('确定要删除《${book.title}》吗？所有章节和图谱数据将一并删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && context.mounted) {
+      await context.read<NovelProvider>().deleteBook(book.id);
+    }
+  }
 }
 
 class _BookCard extends StatelessWidget {
-  final dynamic book;
+  final NovelBook book;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
@@ -222,7 +260,6 @@ class _BookCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // 删除按钮
               IconButton(
                 icon: Icon(Icons.delete_outline, color: Colors.grey.shade400),
                 onPressed: onDelete,

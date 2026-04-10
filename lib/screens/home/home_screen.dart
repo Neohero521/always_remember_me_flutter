@@ -14,7 +14,12 @@ class HomeScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('小说续写器'),
+        title: Text(
+          provider.currentBookId != null && provider.chapters.isNotEmpty
+              ? provider.bookshelf.firstWhere((b) => b.id == provider.currentBookId, orElse: () => provider.bookshelf.first).title
+              : '小说续写器',
+          style: const TextStyle(fontSize: 16),
+        ),
         backgroundColor: Colors.deepPurple.shade50,
         actions: [
           if (hasNovel)
@@ -37,6 +42,42 @@ class HomeScreen extends StatelessWidget {
           if (hasNovel) ...[
             _StatusCard(provider: provider),
             const SizedBox(height: 16),
+          ],
+
+          // 空状态提示
+          if (!hasNovel && provider.currentBookId == null) ...[
+            Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(Icons.library_books, size: 64, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text(
+                    '还没有选中的小说',
+                    style: TextStyle(fontSize: 18, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '请到「书架」导入或选择一本小说',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade400),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.library_books),
+                    label: const Text('去书架'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B6914),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () {
+                      try {
+                        DefaultTabController.of(context).animateTo(0);
+                      } catch (_) {}
+                    },
+                  ),
+                ],
+              ),
+            ),
           ],
 
           // 小说导入（始终显示）
