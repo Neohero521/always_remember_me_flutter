@@ -1097,7 +1097,8 @@ class NovelProvider extends ChangeNotifier {
     await _storage.saveBookshelf(_bookshelf);
     // 保存内容数据
     await _saveCurrentBookData();
-    // 切换到新书（用 selectBook 统一处理）
+    // 切换到新书（避免 selectBook 早期返回，先清空 _currentBookId）
+    _currentBookId = null;
     await selectBook(bookId);
   }
 
