@@ -1014,6 +1014,7 @@ class NovelProvider extends ChangeNotifier {
       _mergedGraph = null;
       _batchMergedGraphs = [];
     }
+    notifyListeners();
   }
 
   /// 保存当前书籍数据到 Hive
@@ -1096,11 +1097,8 @@ class NovelProvider extends ChangeNotifier {
     await _storage.saveBookshelf(_bookshelf);
     // 保存内容数据
     await _saveCurrentBookData();
-    // 切换到新书
-    _currentBookId = bookId;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('last_book_id', bookId);
-    notifyListeners();
+    // 切换到新书（用 selectBook 统一处理）
+    await selectBook(bookId);
   }
 
   /// 删除书籍
