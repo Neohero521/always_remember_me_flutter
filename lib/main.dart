@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/novel_provider.dart';
-import 'screens/home/home_screen.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/import/import_screen.dart';
-import 'screens/chapters/chapters_screen.dart';
-import 'screens/write/write_screen.dart';
 import 'screens/reader/reader_screen.dart';
 import 'screens/graph/graph_viewer_screen.dart';
+import 'screens/write/write_studio_screen.dart';
 import 'services/storage_service.dart';
+import 'theme/game_console_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Hive 初始化（必须在 runApp 之前）
   await StorageService().init();
   runApp(const AlwaysRememberMeApp());
 }
@@ -30,7 +28,6 @@ class AlwaysRememberMeApp extends StatelessWidget {
   }
 }
 
-/// 加载守卫：确保 NovelProvider 初始化完成后才渲染主 UI
 class _AppWithLoadingGuard extends StatefulWidget {
   const _AppWithLoadingGuard();
 
@@ -44,7 +41,6 @@ class _AppWithLoadingGuardState extends State<_AppWithLoadingGuard> {
   @override
   void initState() {
     super.initState();
-    // 等待下一帧，让 NovelProvider 的 _loadSettings() 有机会完成
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = context.read<NovelProvider>();
       await provider.waitForInitialization();
@@ -57,22 +53,33 @@ class _AppWithLoadingGuardState extends State<_AppWithLoadingGuard> {
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
-      // 初始化未完成时显示加载画面
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         home: Scaffold(
-          backgroundColor: const Color(0xFFF5F0E8),
+          backgroundColor: GameColors.bg,
           body: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: const [
-                CircularProgressIndicator(
-                  color: Color(0xFF8B6914),
-                ),
+                Text('🐋', style: TextStyle(fontSize: 48)),
                 SizedBox(height: 16),
                 Text(
-                  '正在加载...',
-                  style: TextStyle(color: Color(0xFF2C2416)),
+                  'Always Remember Me',
+                  style: TextStyle(
+                    color: GameColors.textLight,
+                    fontFamily: 'monospace',
+                    fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 12),
+                SizedBox(
+                  width: 24, height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: GameColors.blueBright,
+                  ),
                 ),
               ],
             ),
@@ -82,13 +89,35 @@ class _AppWithLoadingGuardState extends State<_AppWithLoadingGuard> {
     }
 
     return DefaultTabController(
-      length: 5,
+      length: 3,
       child: MaterialApp(
         title: '小说续写器',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          colorScheme: ColorScheme.fromSeed(seedColor: GameColors.blue),
+          scaffoldBackgroundColor: GameColors.bg,
           useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: GameColors.bg2,
+            foregroundColor: GameColors.textLight,
+            elevation: 0,
+          ),
+          bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+            backgroundColor: GameColors.bg2,
+            selectedItemColor: GameColors.blueBright,
+            unselectedItemColor: GameColors.textMuted,
+            type: BottomNavigationBarType.fixed,
+            elevation: 0,
+          ),
+          cardTheme: const CardTheme(
+            color: GameColors.bg2,
+            elevation: 0,
+          ),
+          snackBarTheme: const SnackBarThemeData(
+            backgroundColor: GameColors.bg2,
+            contentTextStyle: TextStyle(color: GameColors.textLight),
+            behavior: SnackBarBehavior.floating,
+          ),
         ),
         home: const MainShell(),
         routes: {
@@ -101,7 +130,6 @@ class _AppWithLoadingGuardState extends State<_AppWithLoadingGuard> {
   }
 }
 
-/// 主外壳：底部导航
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -115,9 +143,7 @@ class _MainShellState extends State<MainShell> {
 
   final _screens = const [
     BookshelfScreen(),
-    HomeScreen(),
-    ChaptersScreen(),
-    WriteScreen(),
+    WriteStudioScreen(),
     SettingsScreen(),
   ];
 
@@ -136,7 +162,7 @@ class _MainShellState extends State<MainShell> {
     if (_tabController == null) return;
     if (_tabController!.indexIsChanging) return;
     final idx = _tabController!.index;
-    if (idx != _currentIndex && idx >= 0 && idx < 4) {
+    if (idx != _currentIndex && idx >= 0 && idx < 3) {
       setState(() => _currentIndex = idx);
     }
   }
@@ -150,43 +176,102 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: GameColors.bg,
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (idx) {
-          setState(() => _currentIndex = idx);
-          _tabController?.animateTo(idx);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.library_books_outlined),
-            selectedIcon: Icon(Icons.library_books),
-            label: '书架',
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: GameColors.bg2,
+          border: Border(
+            top: BorderSide(color: GameColors.borderLight, width: 2),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '首页',
+        ),
+        child: SafeArea(
+          child: SizedBox(
+            height: 64,
+            child: Row(
+              children: [
+                _NavItem(
+                  icon: '📚',
+                  label: '书架',
+                  selected: _currentIndex == 0,
+                  onTap: () => _onTap(0),
+                ),
+                _NavItem(
+                  icon: '✍️',
+                  label: '续写',
+                  selected: _currentIndex == 1,
+                  onTap: () => _onTap(1),
+                ),
+                _NavItem(
+                  icon: '⚙️',
+                  label: '设置',
+                  selected: _currentIndex == 2,
+                  onTap: () => _onTap(2),
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.list_outlined),
-            selectedIcon: Icon(Icons.list),
-            label: '章节',
+        ),
+      ),
+    );
+  }
+
+  void _onTap(int idx) {
+    setState(() => _currentIndex = idx);
+    _tabController?.animateTo(idx);
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  final String icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          decoration: BoxDecoration(
+            color: selected ? GameColors.blue.withOpacity(0.15) : Colors.transparent,
+            border: Border(
+              top: BorderSide(
+                color: selected ? GameColors.blueBright : Colors.transparent,
+                width: 3,
+              ),
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.auto_stories_outlined),
-            selectedIcon: Icon(Icons.auto_stories),
-            label: '续写',
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 22)),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? GameColors.textLight : GameColors.textMuted,
+                  fontFamily: 'monospace',
+                  fontFamilyFallback: const ['Noto Sans SC', 'sans-serif'],
+                  fontSize: 10,
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: '设置',
-          ),
-        ],
+        ),
       ),
     );
   }

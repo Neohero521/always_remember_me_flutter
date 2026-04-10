@@ -3,18 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import '../providers/novel_provider.dart';
-
-// 打字机主题色（与妙笔一致）
-class _AppColors {
-  static const Color cream = Color(0xFFF5F0E8);
-  static const Color paper = Color(0xFFFAF7F2);
-  static const Color ink = Color(0xFF2C2416);
-  static const Color faded = Color(0xFF7A6F5D);
-  static const Color primary = Color(0xFF8B6914);
-  static const Color gold = Color(0xFFB8860B);
-  static const Color accent = Color(0xFFF5A623);
-  static const Color caiyunPrimary = Color(0xFF8B6914);
-}
+import '../theme/game_console_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -64,12 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         : _apiUrlController.text.trim();
 
     if (modelToSave.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ 请先获取并选择模型'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      showPixelSnackBar(context, '⚠️ 请先获取并选择模型', isError: true);
       return;
     }
 
@@ -84,12 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('✅ 设置已保存'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    showPixelSnackBar(context, '✅ 设置已保存');
   }
 
   Future<void> _fetchModels() async {
@@ -109,10 +88,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       final endpoints = _guessModelEndpoints(apiUrl);
-
       Exception? lastError;
+
       for (final endpoint in endpoints) {
-        // Bearer token 认证
         try {
           final response = await _makeRequest(url: endpoint, apiKey: apiKey);
           if (response['error'] != null) {
@@ -153,7 +131,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           lastError = e is Exception ? e : Exception(e.toString());
         }
 
-        // X-API-Key 认证
         try {
           final response = await _makeRequestAlt(url: endpoint, apiKey: apiKey);
           if (response['error'] != null) {
@@ -204,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  static const String _browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  static const String _browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
   Future<Map<String, dynamic>> _makeRequest({
     required String url,
@@ -322,89 +299,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _AppColors.cream,
+      backgroundColor: GameColors.bg,
       appBar: AppBar(
-        backgroundColor: _AppColors.cream,
+        backgroundColor: GameColors.bg2,
         elevation: 0,
         title: const Text(
           '⚙️ 设置',
-          style: TextStyle(color: _AppColors.ink),
+          style: TextStyle(
+            color: GameColors.textLight,
+            fontFamily: 'monospace',
+            fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        iconTheme: const IconThemeData(color: _AppColors.ink),
+        iconTheme: const IconThemeData(color: GameColors.textLight),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         children: [
           // API配置卡片
-          _buildSectionCard(
+          _buildPixelSectionCard(
             title: '🔑 API 配置',
-            icon: Icons.key,
             children: [
-              _buildTextField(
+              _buildPixelTextField(
                 controller: _apiUrlController,
                 label: 'API 地址',
                 hint: 'https://api.openai.com/v1',
                 helperText: 'AI 接口的 base URL',
               ),
-              const SizedBox(height: 16),
-              _buildTextField(
+              const SizedBox(height: 12),
+              _buildPixelTextField(
                 controller: _apiKeyController,
                 label: 'API Key',
                 hint: '输入你的 API Key',
                 helperText: '用于调用 AI 续写服务',
                 isPassword: true,
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _isLoadingModels ? null : _fetchModels,
-                  icon: _isLoadingModels
-                      ? const SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: _isLoadingModels ? null : _fetchModels,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: GameColors.buttonDecoration(
+                    color: _isLoadingModels ? GameColors.bg3 : GameColors.blue,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_isLoadingModels)
+                        const SizedBox(
+                          width: 14, height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: GameColors.textLight,
+                          ),
                         )
-                      : const Icon(Icons.list),
-                  label: Text(_isLoadingModels ? '加载中...' : '获取模型列表'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _AppColors.caiyunPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                      else
+                        const Text('📋', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isLoadingModels ? '加载中...' : '获取模型列表',
+                        style: const TextStyle(
+                          color: GameColors.textLight,
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: _selectedModel != null
-                      ? _AppColors.caiyunPrimary.withOpacity(0.08)
-                      : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(10),
+                      ? GameColors.blue.withOpacity(0.15)
+                      : GameColors.bg3,
+                  borderRadius: BorderRadius.circular(4),
                   border: Border.all(
                     color: _selectedModel != null
-                        ? _AppColors.caiyunPrimary.withOpacity(0.3)
-                        : Colors.grey.shade300,
-                    width: 1,
+                        ? GameColors.blue
+                        : GameColors.borderLight,
+                    width: 2,
                   ),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      _selectedModel != null ? Icons.auto_awesome : Icons.info_outline,
-                      size: 16,
-                      color: _selectedModel != null ? _AppColors.caiyunPrimary : Colors.grey,
+                    Text(
+                      _selectedModel != null ? '🤖' : 'ℹ️',
+                      style: const TextStyle(fontSize: 14),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      _selectedModel != null ? '当前模型：$_selectedModel' : '未选择模型',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: _selectedModel != null ? _AppColors.caiyunPrimary : Colors.grey.shade600,
+                    Expanded(
+                      child: Text(
+                        _selectedModel != null
+                            ? '当前模型：$_selectedModel'
+                            : '未选择模型',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: _selectedModel != null
+                              ? GameColors.blueBright
+                              : GameColors.textMuted,
+                        ),
                       ),
                     ),
                   ],
@@ -412,23 +413,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               if (_modelsError != null) ...[
                 const SizedBox(height: 8),
-                Text(
-                  _modelsError!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: GameColors.red.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: GameColors.red, width: 1),
+                  ),
+                  child: Text(
+                    _modelsError!,
+                    style: const TextStyle(color: GameColors.red, fontSize: 11),
+                  ),
                 ),
               ],
               if (_availableModels.isNotEmpty) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 const Text(
-                  '选择模型',
+                  '📋 选择模型',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: _AppColors.ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: GameColors.textLight,
+                    fontFamily: 'monospace',
                   ),
                 ),
                 const SizedBox(height: 8),
-                ..._availableModels.map((model) => _buildModelOption(
+                ..._availableModels.map((model) => _buildModelOptionPixel(
                   id: model['id']!,
                   name: model['name']!,
                   desc: model['desc'] ?? '',
@@ -437,29 +447,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // 续写设置卡片
-          _buildSectionCard(
+          _buildPixelSectionCard(
             title: '✏️ 续写设置',
-            icon: Icons.edit,
             children: [
-              _buildTextField(
+              _buildPixelTextField(
                 controller: _wordCountController,
                 label: '续写字数',
                 hint: '2000',
                 helperText: '每次续写的目标字数',
-                isPassword: false,
               ),
-              const SizedBox(height: 16),
-              _buildSwitchTile(
+              const SizedBox(height: 12),
+              _buildPixelSwitchTile(
                 title: '质量校验',
                 subtitle: '续写后进行质量评估',
                 value: _enableQualityCheck,
                 onChanged: (v) => setState(() => _enableQualityCheck = v),
               ),
-              const Divider(),
-              _buildSwitchTile(
+              Container(
+                height: 1,
+                color: GameColors.borderDark,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+              ),
+              _buildPixelSwitchTile(
                 title: '自动生成图谱',
                 subtitle: '续写完成后自动更新知识图谱',
                 value: _autoUpdateGraphAfterWrite,
@@ -468,43 +480,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // 保存按钮
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saveSettings,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _AppColors.caiyunPrimary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          GestureDetector(
+            onTap: _saveSettings,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: GameColors.buttonDecoration(color: GameColors.green),
+              child: const Center(
+                child: Text(
+                  '💾 保存配置',
+                  style: TextStyle(
+                    color: GameColors.textLight,
+                    fontFamily: 'monospace',
+                    fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-              child: const Text('保存配置'),
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // 关于卡片
-          _buildSectionCard(
+          _buildPixelSectionCard(
             title: 'ℹ️ 关于',
-            icon: Icons.info_outline,
             children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Always Remember Me'),
-                subtitle: const Text('版本 1.0.0'),
-                trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
-              ),
-              const Divider(),
-              const ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text('基于妙笔 Flutter 重构'),
-                subtitle: Text('小说续写工具'),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    const Text('🐋', style: TextStyle(fontSize: 20)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Always Remember Me',
+                            style: TextStyle(
+                              color: GameColors.textLight,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                            ),
+                          ),
+                          const Text(
+                            '版本 1.0.0 · 小说续写辅助工具',
+                            style: TextStyle(
+                              color: GameColors.textMuted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Text('›', style: TextStyle(
+                      color: GameColors.textMuted,
+                      fontSize: 20,
+                    )),
+                  ],
+                ),
               ),
             ],
           ),
@@ -513,107 +553,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildModelOption({
-    required String id,
-    required String name,
-    required String desc,
-  }) {
-    final isSelected = _selectedModel == id;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedModel = id),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? _AppColors.caiyunPrimary.withOpacity(0.1)
-              : _AppColors.cream,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? _AppColors.caiyunPrimary : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: isSelected ? _AppColors.caiyunPrimary : Colors.grey,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected ? _AppColors.caiyunPrimary : _AppColors.ink,
-                    ),
-                  ),
-                  if (desc.isNotEmpty)
-                    Text(
-                      desc,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionCard({
+  Widget _buildPixelSectionCard({
     required String title,
-    required IconData icon,
     required List<Widget> children,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(12),
+      decoration: GameColors.cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, color: _AppColors.caiyunPrimary, size: 22),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  color: _AppColors.ink,
-                ),
-              ),
-            ],
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: GameColors.textLight,
+              fontFamily: 'monospace',
+              fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           ...children,
         ],
       ),
     );
   }
 
-  Widget _buildTextField({
+  Widget _buildPixelTextField({
     required TextEditingController controller,
     required String label,
     required String hint,
@@ -626,43 +593,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: _AppColors.ink,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: GameColors.textMuted,
+            fontFamily: 'monospace',
           ),
         ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          obscureText: isPassword,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: Colors.grey.shade400),
-            filled: true,
-            fillColor: _AppColors.cream,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
+        const SizedBox(height: 6),
+        Container(
+          decoration: GameColors.inputDecoration(),
+          child: TextField(
+            controller: controller,
+            obscureText: isPassword,
+            style: const TextStyle(
+              color: GameColors.textLight,
+              fontSize: 13,
+              fontFamily: 'monospace',
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
+            cursorColor: GameColors.blueBright,
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: const TextStyle(color: GameColors.textMuted, fontSize: 12),
+              filled: true,
+              fillColor: GameColors.bg3,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: InputBorder.none,
             ),
           ),
         ),
         const SizedBox(height: 4),
         Text(
           helperText,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade500,
+          style: const TextStyle(
+            fontSize: 10,
+            color: GameColors.textMuted,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSwitchTile({
+  Widget _buildPixelSwitchTile({
     required String title,
     required String subtitle,
     required bool value,
@@ -679,27 +650,111 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: _AppColors.ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: GameColors.textLight,
+                    fontFamily: 'monospace',
                   ),
                 ),
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: GameColors.textMuted,
                   ),
                 ),
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: _AppColors.caiyunPrimary,
+          GestureDetector(
+            onTap: () => onChanged(!value),
+            child: Container(
+              width: 44,
+              height: 26,
+              decoration: BoxDecoration(
+                color: value ? GameColors.green : GameColors.bg3,
+                border: Border.all(
+                  color: value ? GameColors.green : GameColors.borderLight,
+                  width: 2,
+                ),
+                borderRadius: BorderRadius.circular(4),
+                boxShadow: [
+                  if (value) const BoxShadow(color: GameColors.green, offset: Offset(-1, -1)),
+                  const BoxShadow(color: GameColors.shadowColor, offset: Offset(1, 1)),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  value ? 'ON' : 'OFF',
+                  style: const TextStyle(
+                    color: GameColors.textLight,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModelOptionPixel({
+    required String id,
+    required String name,
+    required String desc,
+  }) {
+    final isSelected = _selectedModel == id;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedModel = id),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? GameColors.blue.withOpacity(0.15)
+              : GameColors.bg3,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isSelected ? GameColors.blueBright : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: Row(
+          children: [
+            Text(
+              isSelected ? '✅' : '⬜',
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? GameColors.blueBright : GameColors.textLight,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  if (desc.isNotEmpty)
+                    Text(
+                      desc,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: GameColors.textMuted,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
