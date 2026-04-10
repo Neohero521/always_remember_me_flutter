@@ -979,15 +979,40 @@ class NovelProvider extends ChangeNotifier {
   String? get currentBookId => _currentBookId;
 
   /// 加载指定书籍的数据到内存
-  Future<void> _loadBookData(String bookId) async {
-    final data = await _storage.loadNovelDataForBook(bookId);
-    if (data != null) {
+  /// 返回 true 表示加载成功，false 表示无数据
+  Future<bool> _loadBookData(String bookId) async {
+    try {
+      final data = await _storage.loadNovelDataForBook(bookId);
+      if (data == null) {
+        debugPrint('[NovelProvider] _loadBookData($bookId): 无数据，初始化为空状态');
+        _chapters = [];
+        _chapterGraphMap = {};
+        _continueChain = [];
+        _continueIdCounter = 1;
+        _mergedGraph = null;
+        _batchMergedGraphs = [];
+        _lastParsedText = '';
+        _currentRegexIndex = 0;
+        _customRegex = '';
+        _selectedBaseChapterId = '';
+        _writePreview = '';
+        _precheckResult = null;
+        _qualityResult = null;
+        _qualityResultShow = false;
+        _graphComplianceResult = null;
+        _graphCompliancePass = null;
+        notifyListeners();
+        return false;
+      }
+
       _chapters = data.chapters ?? [];
       _chapterGraphMap = data.chapterGraphMap ?? {};
       _continueChain = data.continueChain ?? [];
       _continueIdCounter = data.continueIdCounter ?? 1;
       if (data.mergedGraph != null && data.mergedGraph!.isNotEmpty) {
         _mergedGraph = json.decode(data.mergedGraph!) as Map<String, dynamic>;
+      } else {
+        _mergedGraph = null;
       }
       _batchMergedGraphs = (data.batchMergedGraphs ?? [])
           .map((s) => json.decode(s) as Map<String, dynamic>).toList();
@@ -998,23 +1023,31 @@ class NovelProvider extends ChangeNotifier {
       _writePreview = data.writePreview ?? '';
       if (data.precheckResult != null) {
         _precheckResult = PrecheckResult.fromJson(data.precheckResult!);
+      } else {
+        _precheckResult = null;
       }
       if (data.qualityResult != null) {
         _qualityResult = QualityResult.fromJson(data.qualityResult!);
+      } else {
+        _qualityResult = null;
       }
       _qualityResultShow = data.qualityResultShow ?? false;
       if (data.graphCompliance != null) {
         _graphComplianceResult = data.graphCompliance!['result'] as String?;
         _graphCompliancePass = data.graphCompliance!['pass'] as bool?;
+      } else {
+        _graphComplianceResult = null;
+        _graphCompliancePass = null;
       }
-    } else {
+      debugPrint('[NovelProvider] _loadBookData($bookId): 加载了 ${_chapters.length} 章');
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      debugPrint('[NovelProvider] _loadBookData($bookId) 失败: $e $st');
       _chapters = [];
-      _chapterGraphMap = {};
-      _continueChain = [];
-      _mergedGraph = null;
-      _batchMergedGraphs = [];
+      notifyListeners();
+      return false;
     }
-    notifyListeners();
   }
 
   /// 保存当前书籍数据到 Hive
@@ -1052,17 +1085,25 @@ class NovelProvider extends ChangeNotifier {
   }
 
   /// 切换到指定书籍
-  Future<void> selectBook(String bookId) async {
-    if (_currentBookId == bookId) return;
+  /// 返回 true 表示切换成功，false 表示无数据（书未被加载）
+  Future<bool> selectBook(String bookId) async {
+    debugPrint('[NovelProvider] selectBook($bookId) 开始，_currentBookId=$_currentBookId');
+    if (_currentBookId == bookId) {
+      debugPrint('[NovelProvider] selectBook: 同一本书，跳过');
+      return true;
+    }
+    // 保存旧书
     if (_currentBookId != null) {
       await _saveCurrentBookData();
     }
     _currentBookId = bookId;
-    await _loadBookData(bookId);
+    // 加载新书数据
+    final hasData = await _loadBookData(bookId);
     // 保存当前书籍ID到 SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('last_book_id', bookId);
-    notifyListeners();
+    debugPrint('[NovelProvider] selectBook($bookId) 完成，hasData=$hasData');
+    return hasData;
   }
 
   /// 导入新书（从 ImportScreen 调用）

@@ -12,24 +12,50 @@ class BookshelfScreen extends StatefulWidget {
 }
 
 class _BookshelfScreenState extends State<BookshelfScreen> {
-  bool _isLoading = false; // 加载锁，防止异步期间重复点击
+  String? _loadingBookId; // 正在加载的书ID
 
-  Future<void> _selectBook(BuildContext context, NovelBook book) async {
-    if (_isLoading) return;
+  Future<void> _selectBook(NovelBook book) async {
+    if (_loadingBookId != null) return; // 防抖
 
     final provider = context.read<NovelProvider>();
 
-    // 书架点击时：先保存当前书，再切换
-    setState(() => _isLoading = true);
+    setState(() => _loadingBookId = book.id);
+
     try {
-      await provider.selectBook(book.id);
+      // 切换书籍，加载成功才切换 tab
+      final ok = await provider.selectBook(book.id);
+      if (!ok && mounted) {
+        // 数据为空，提示用户
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('《${book.title}》无数据，可能解析失败'),
+            action: SnackBarAction(label: '重新解析', onPressed: () {
+              // 导航到 ImportScreen 重新解析
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportScreen()));
+            }),
+          ),
+        );
+        return;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('加载失败: $e')),
+        );
+      }
+      return;
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _loadingBookId = null);
+      }
     }
 
-    if (!mounted) return;
-    // 切换到首页 Tab
-    DefaultTabController.of(context).animateTo(1);
+    // 切换到底部 Tab 1（首页）
+    if (mounted) {
+      try {
+        DefaultTabController.of(context).animateTo(1);
+      } catch (_) {}
+    }
   }
 
   @override
@@ -49,48 +75,16 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
         builder: (context, provider, _) {
           final books = provider.bookshelf;
 
-          if (_isLoading) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Color(0xFF8B6914)),
-                  SizedBox(height: 16),
-                  Text(
-                    '正在加载...',
-                    style: TextStyle(color: Color(0xFF2C2416)),
-                  ),
-                ],
-              ),
-            );
-          }
-
           if (books.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.library_books_outlined,
-                    size: 80,
-                    color: Colors.grey.shade400,
-                  ),
+                  Icon(Icons.library_books_outlined, size: 80, color: Colors.grey.shade400),
                   const SizedBox(height: 16),
-                  Text(
-                    '书架空空如也',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
+                  Text('书架空空如也', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
                   const SizedBox(height: 8),
-                  Text(
-                    '点击下方 + 导入第一本小说',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade400,
-                    ),
-                  ),
+                  Text('点击下方 + 导入第一本小说', style: TextStyle(fontSize: 14, color: Colors.grey.shade400)),
                 ],
               ),
             );
@@ -101,9 +95,11 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
             itemCount: books.length,
             itemBuilder: (context, index) {
               final book = books[index];
+              final isLoading = _loadingBookId == book.id;
               return _BookCard(
                 book: book,
-                onTap: () => _selectBook(context, book),
+                isLoading: isLoading,
+                onTap: () => _selectBook(book),
                 onDelete: () => _confirmDelete(context, book),
               );
             },
@@ -112,10 +108,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ImportScreen()),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportScreen()));
         },
         backgroundColor: const Color(0xFF8B6914),
         child: const Icon(Icons.add, color: Colors.white),
@@ -130,10 +123,7 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
         title: const Text('删除书籍'),
         content: Text('确定要删除《${book.title}》吗？所有章节和图谱数据将一并删除。'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('删除', style: TextStyle(color: Colors.red)),
@@ -149,11 +139,13 @@ class _BookshelfScreenState extends State<BookshelfScreen> {
 
 class _BookCard extends StatelessWidget {
   final NovelBook book;
+  final bool isLoading;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
   const _BookCard({
     required this.book,
+    required this.isLoading,
     required this.onTap,
     required this.onDelete,
   });
@@ -175,7 +167,7 @@ class _BookCard extends StatelessWidget {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
-        onTap: onTap,
+        onTap: isLoading ? null : onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -190,52 +182,43 @@ class _BookCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Center(
-                  child: Text(
-                    book.title.isNotEmpty ? book.title[0] : '无',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF8B6914),
-                    ),
-                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 24, height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B6914)),
+                        )
+                      : Text(
+                          book.title.isNotEmpty ? book.title[0] : '无',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF8B6914),
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 16),
-              // 信息
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       book.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF2C2416),
-                      ),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF2C2416)),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '${book.chapterCount} 章',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                      ),
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                     ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
                         Icon(Icons.access_time, size: 12, color: Colors.grey.shade400),
                         const SizedBox(width: 4),
-                        Text(
-                          _formatTime(book.lastReadAt),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade400,
-                          ),
-                        ),
+                        Text(_formatTime(book.lastReadAt), style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
                         if (book.readProgress > 0) ...[
                           const SizedBox(width: 12),
                           SizedBox(
@@ -247,13 +230,8 @@ class _BookCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            '${(book.readProgress * 100).toInt()}%',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
+                          Text('${(book.readProgress * 100).toInt()}%',
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                         ],
                       ],
                     ),
