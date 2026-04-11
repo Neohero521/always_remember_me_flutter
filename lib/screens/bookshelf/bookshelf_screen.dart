@@ -265,9 +265,7 @@ class _QuickActionsSection extends StatelessWidget {
             color: Colors.orange,
             enabled: hasNovel,
             onTap: () {
-              try {
-                DefaultTabController.of(context).animateTo(1);
-              } catch (_) {}
+              Navigator.pushNamed(context, '/');
             },
           ),
           const SizedBox(height: 8),
