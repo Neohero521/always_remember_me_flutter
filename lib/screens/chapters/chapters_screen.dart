@@ -78,6 +78,16 @@ class _ChaptersScreenState extends State<ChaptersScreen> {
                   );
                 } else if (v == 'validate_compliance') {
                   _validateCompliance(context, provider);
+                } else if (v == 'view_graph') {
+                  if (provider.mergedGraph != null) {
+                    Navigator.pushNamed(context, '/graph');
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('请先合并图谱')),
+                    );
+                  }
+                } else if (v == 'settings') {
+                  Navigator.pushNamed(context, '/settings');
                 }
               },
               itemBuilder: (_) => [
@@ -85,6 +95,8 @@ class _ChaptersScreenState extends State<ChaptersScreen> {
                 const PopupMenuItem(value: 'generate_all', child: Text('批量生成全部图谱')),
                 const PopupMenuItem(value: 'check_graph_status', child: Text('图谱状态检验')),
                 const PopupMenuItem(value: 'validate_compliance', child: Text('图谱合规性校验')),
+                const PopupMenuItem(value: 'view_graph', child: Text('查看全局图谱')),
+                const PopupMenuItem(value: 'settings', child: Text('⚙️ 设置')),
               ],
             ),
           ],

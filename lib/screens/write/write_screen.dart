@@ -64,6 +64,18 @@ class _WriteScreenState extends State<WriteScreen> {
               tooltip: '前置校验详情',
               onPressed: () => _showPrecheckDrawer(context, provider),
             ),
+          // 设置菜单
+          PopupMenuButton<String>(
+            icon: const Text('⋮', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            onSelected: (v) {
+              if (v == 'settings') {
+                Navigator.pushNamed(context, '/settings');
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'settings', child: Row(children: [Icon(Icons.settings, size: 18), SizedBox(width: 8), Text('⚙️ 设置')])),
+            ],
+          ),
         ],
       ),
       body: ListView(
