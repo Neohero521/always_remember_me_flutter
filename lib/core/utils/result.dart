@@ -1,5 +1,6 @@
-/// Result type for v5.0 - Either-style error handling without exceptions
-/// Uses freezed but we implement it manually to avoid build complexity for now
+import 'package:always_remember_me/core/exceptions/app_exception.dart';
+
+/// Result 类型 - Either-style error handling without exceptions
 sealed class Result<E, T> {
   const Result();
 }
@@ -15,7 +16,7 @@ class Failure<E, T> extends Result<E, T> {
 }
 
 /// Shorthand for AppException-based results
-typedef AppResult<T> = Result<dynamic, T>;
+typedef AppResult<T> = Result<AppException, T>;
 
 extension ResultExtension<E, T> on Result<E, T> {
   bool get isSuccess => this is Success<E, T>;

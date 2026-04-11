@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/novel_provider.dart';
 import '../theme/v4_colors.dart';
 
-/// AppDrawer v5.0 - Drawer with GoRouter navigation
+/// AppDrawer v4.0 - 精简版 Drawer（5项菜单）
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -24,11 +23,13 @@ class AppDrawer extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
+            // Header 区域 — 渐变背景
             _DrawerHeader(
               bookTitle: currentBook?.title,
               hasNovel: hasNovel,
             ),
             const Divider(height: 1, color: V4Colors.divider),
+            // 主导航菜单（5项）
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -73,6 +74,7 @@ class AppDrawer extends StatelessWidget {
                 ],
               ),
             ),
+            // 底部版本信息
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: const BoxDecoration(
@@ -92,7 +94,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                   Spacer(),
                   Text(
-                    'v5.0.0',
+                    'v4.0.0',
                     style: TextStyle(
                       fontSize: 12,
                       color: V4Colors.textSecondary,
@@ -109,7 +111,9 @@ class AppDrawer extends StatelessWidget {
 
   void _navigateTo(BuildContext context, String route) {
     Navigator.of(context).pop();
-    context.go(route);
+    if (route.startsWith('/')) {
+      Navigator.of(context).pushNamed(route);
+    }
   }
 
   void _showAboutDialog(BuildContext context) {
@@ -126,7 +130,7 @@ class AppDrawer extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 5.0.0'),
+            Text('版本 4.0.0'),
             SizedBox(height: 8),
             Text(
               '一个可爱的小说续写工具，支持知识图谱、AI续写、批量操作等功能。',
@@ -164,7 +168,10 @@ class _DrawerHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('🐋', style: TextStyle(fontSize: 40)),
+          const Text(
+            '🐋',
+            style: TextStyle(fontSize: 40),
+          ),
           const SizedBox(height: 8),
           const Text(
             'Always Remember Me',
@@ -176,18 +183,25 @@ class _DrawerHeader extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          if (bookTitle != null)
+          if (bookTitle != null) ...[
             Text(
               '当前：《$bookTitle》',
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-            )
-          else
+            ),
+          ] else ...[
             const Text(
               '✨ 还没有选中书籍',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+              ),
             ),
+          ],
         ],
       ),
     );
@@ -218,7 +232,9 @@ class _DrawerMenuItem extends StatelessWidget {
           color: V4Colors.primary.withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Center(child: Text(emoji, style: const TextStyle(fontSize: 18))),
+        child: Center(
+          child: Text(emoji, style: const TextStyle(fontSize: 18)),
+        ),
       ),
       title: Text(
         label,
@@ -231,10 +247,17 @@ class _DrawerMenuItem extends StatelessWidget {
       subtitle: subtitle != null
           ? Text(
               subtitle!,
-              style: const TextStyle(fontSize: 12, color: V4Colors.textSecondary),
+              style: const TextStyle(
+                fontSize: 12,
+                color: V4Colors.textSecondary,
+              ),
             )
           : null,
-      trailing: const Icon(Icons.chevron_right, color: V4Colors.textSecondary, size: 20),
+      trailing: const Icon(
+        Icons.chevron_right,
+        color: V4Colors.textSecondary,
+        size: 20,
+      ),
       onTap: onTap,
     );
   }
