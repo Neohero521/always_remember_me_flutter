@@ -1,6 +1,11 @@
 # This is a generated file; do not edit or check into version control.
 file_picker=/home/kaku5/.pub-cache/hosted/pub.dev/file_picker-6.2.1/
 flutter_plugin_android_lifecycle=/home/kaku5/.pub-cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.26/
+flutter_secure_storage=/home/kaku5/.pub-cache/hosted/pub.dev/flutter_secure_storage-9.2.4/
+flutter_secure_storage_linux=/home/kaku5/.pub-cache/hosted/pub.dev/flutter_secure_storage_linux-1.2.3/
+flutter_secure_storage_macos=/home/kaku5/.pub-cache/hosted/pub.dev/flutter_secure_storage_macos-3.1.3/
+flutter_secure_storage_web=/home/kaku5/.pub-cache/hosted/pub.dev/flutter_secure_storage_web-1.2.1/
+flutter_secure_storage_windows=/home/kaku5/.pub-cache/hosted/pub.dev/flutter_secure_storage_windows-3.1.2/
 path_provider=/home/kaku5/.pub-cache/hosted/pub.dev/path_provider-2.1.5/
 path_provider_android=/home/kaku5/.pub-cache/hosted/pub.dev/path_provider_android-2.2.15/
 path_provider_foundation=/home/kaku5/.pub-cache/hosted/pub.dev/path_provider_foundation-2.4.1/

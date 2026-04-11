@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chapter.dart';
 import '../models/novel_book.dart';
@@ -12,6 +13,9 @@ import '../services/storage_service.dart';
 /// 全局状态管理
 class NovelProvider extends ChangeNotifier {
   final StorageService _storage = StorageService();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
 
   final Completer<void> _initCompleter = Completer<void>();
 
@@ -1001,17 +1005,20 @@ class NovelProvider extends ChangeNotifier {
   // === 持久化 ===
   Future<bool> _saveSettings() async {
     try {
+      // 敏感配置写入 flutter_secure_storage
+      await _secureStorage.write(key: 'apiBaseUrl', value: _apiBaseUrl);
+      await _secureStorage.write(key: 'apiKey', value: _apiKey);
+      await _secureStorage.write(key: 'selectedModel', value: _selectedModel);
+      await _secureStorage.write(key: 'writeWordCount', value: _writeWordCount.toString());
+      await _secureStorage.write(key: 'enableQualityCheck', value: _enableQualityCheck.toString());
+      await _secureStorage.write(key: 'autoUpdateGraphAfterWrite', value: _autoUpdateGraphAfterWrite.toString());
+
+      // 非敏感配置保留 SharedPreferences
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('novel_app_settings', json.encode({
-        'apiBaseUrl': _apiBaseUrl,
-        'apiKey': _apiKey,
-        'selectedModel': _selectedModel,
-        'writeWordCount': _writeWordCount,
-        'enableQualityCheck': _enableQualityCheck,
-        'autoUpdateGraphAfterWrite': _autoUpdateGraphAfterWrite,
-        'readerFontSize': _readerFontSize,
-        'currentChapterId': _currentChapterId,
-      }));
+      await prefs.setInt('readerFontSize', _readerFontSize);
+      if (_currentChapterId != null) {
+        await prefs.setInt('currentChapterId', _currentChapterId!);
+      }
       debugPrint('设置保存成功');
       return true;
     } catch (e, st) {
@@ -1074,23 +1081,54 @@ class NovelProvider extends ChangeNotifier {
       }
     }
 
-    // 1. 先从 SharedPreferences 加载 API 配置（小数据，兼容旧版本）
+    // 1. 尝试从 flutter_secure_storage 加载敏感配置
+    try {
+      _apiBaseUrl = await _secureStorage.read(key: 'apiBaseUrl') ?? '';
+      _apiKey = await _secureStorage.read(key: 'apiKey') ?? '';
+      _selectedModel = await _secureStorage.read(key: 'selectedModel') ?? '';
+      final wwc = await _secureStorage.read(key: 'writeWordCount');
+      _writeWordCount = wwc != null ? int.tryParse(wwc) ?? 2000 : 2000;
+      final eqc = await _secureStorage.read(key: 'enableQualityCheck');
+      _enableQualityCheck = eqc != null ? eqc == 'true' : true;
+      final aug = await _secureStorage.read(key: 'autoUpdateGraphAfterWrite');
+      _autoUpdateGraphAfterWrite = aug != null ? aug == 'true' : true;
+    } catch (e) {
+      debugPrint('flutter_secure_storage 加载失败: $e');
+    }
+
+    // 2. 非敏感配置从 SharedPreferences 加载
     try {
       final prefs = await SharedPreferences.getInstance();
-      final data = prefs.getString('novel_app_settings');
-      if (data != null) {
-        final map = json.decode(data) as Map<String, dynamic>;
-        _apiBaseUrl = map['apiBaseUrl'] ?? '';
-        _apiKey = map['apiKey'] ?? '';
-        _selectedModel = map['selectedModel'] ?? '';
-        _writeWordCount = map['writeWordCount'] ?? 2000;
-        _enableQualityCheck = map['enableQualityCheck'] ?? true;
-        _autoUpdateGraphAfterWrite = map['autoUpdateGraphAfterWrite'] ?? true;
-        _readerFontSize = map['readerFontSize'] ?? 16;
-        _currentChapterId = map['currentChapterId'] as int?;
-      }
+      _readerFontSize = prefs.getInt('readerFontSize') ?? 16;
+      _currentChapterId = prefs.getInt('currentChapterId');
     } catch (e) {
       debugPrint('SharedPreferences 加载失败: $e');
+    }
+
+    // 3. 兼容旧版本：从 SharedPreferences 迁移旧 API 配置（如果新存储为空）
+    if (_apiKey.isEmpty || _apiBaseUrl.isEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final data = prefs.getString('novel_app_settings');
+        if (data != null) {
+          final map = json.decode(data) as Map<String, dynamic>;
+          if (_apiBaseUrl.isEmpty) _apiBaseUrl = map['apiBaseUrl'] ?? '';
+          if (_apiKey.isEmpty) _apiKey = map['apiKey'] ?? '';
+          if (_selectedModel.isEmpty) _selectedModel = map['selectedModel'] ?? '';
+          if (map['writeWordCount'] != null) _writeWordCount = map['writeWordCount'];
+          if (map['enableQualityCheck'] != null) _enableQualityCheck = map['enableQualityCheck'];
+          if (map['autoUpdateGraphAfterWrite'] != null) _autoUpdateGraphAfterWrite = map['autoUpdateGraphAfterWrite'];
+          if (map['readerFontSize'] != null) _readerFontSize = map['readerFontSize'];
+          if (map['currentChapterId'] != null) _currentChapterId = map['currentChapterId'] as int?;
+          // 迁移完成后，删除旧数据（可选）
+          await prefs.remove('novel_app_settings');
+          // 立即保存到新位置
+          await _saveSettings();
+          debugPrint('旧版 API 配置已迁移到 flutter_secure_storage');
+        }
+      } catch (e) {
+        debugPrint('旧版配置迁移失败: $e');
+      }
     }
 
     notifyListeners();
