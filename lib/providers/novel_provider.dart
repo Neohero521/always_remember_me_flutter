@@ -45,6 +45,7 @@ class NovelProvider extends ChangeNotifier {
   List<RegexMatchResult> _sortedRegexList = [];
   String _customRegex = '';
   String _currentAutoRegex = '';  // 自动匹配时使用的正则
+  String _lastImportCacheKey = '';  // 上次导入时的缓存key（bookId|text），用于区分不同书的缓存
 
   // === 图谱状态 ===
   Map<int, Map<String, dynamic>> _chapterGraphMap = {};
@@ -1217,18 +1218,24 @@ class NovelProvider extends ChangeNotifier {
       _persistTimer?.cancel();
 
       // 2. 解析章节（复用已有结果，或重新解析）
+      // 复用条件：文本相同 AND 章节非空 AND 当前选中的书ID等于上次导入的书ID
+      // 这样可以区分"同一本书重新导入"（应该复用）和"不同书导入"（应该重新解析）
       List<Chapter> parsed;
-      if (_lastParsedText == novelText && _chapters.isNotEmpty) {
-        // 文本没变：直接复用当前章节（同一本书作为新书导入时，走这个分支）
+      final cacheKey = '$_currentBookId|$novelText';
+      if (_lastImportCacheKey == cacheKey && _chapters.isNotEmpty) {
+        // 同一本书的同一文本：复用
         parsed = _chapters;
-      } else if (customRegex != null && customRegex.isNotEmpty) {
-        parsed = ChapterService.splitByRegex(novelText, customRegex);
-      } else if (wordCount != null) {
-        parsed = ChapterService.splitByWordCount(novelText, wordCount);
       } else {
-        // 使用当前保存的正则重新解析
-        final regex = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
-        parsed = ChapterService.splitByRegex(novelText, regex);
+        // 不同书，或文本已变化：强制重新解析
+        if (customRegex != null && customRegex.isNotEmpty) {
+          parsed = ChapterService.splitByRegex(novelText, customRegex);
+        } else if (wordCount != null) {
+          parsed = ChapterService.splitByWordCount(novelText, wordCount);
+        } else {
+          final regex = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
+          parsed = ChapterService.splitByRegex(novelText, regex);
+        }
+        _lastImportCacheKey = cacheKey;
       }
 
       // 3. 生成新书ID，创建书架元数据（同步写入，不等异步）
