@@ -970,6 +970,22 @@ class NovelProvider extends ChangeNotifier {
       if (_currentBookId != null) {
         await _loadBookData(_currentBookId!);
       }
+
+      // 启动时校验：遍历书架所有书的章节数元数据，发现不一致则纠正
+      for (final book in _bookshelf) {
+        final bookData = await _storage.loadNovelDataForBook(book.id);
+        final actualCount = bookData?.chapters?.length ?? 0;
+        if (book.chapterCount != actualCount) {
+          debugPrint('[_loadSettings] 校正书籍${book.id}章节数: ${book.chapterCount} -> $actualCount');
+          final idx = _bookshelf.indexWhere((b) => b.id == book.id);
+          if (idx >= 0) {
+            _bookshelf[idx] = _bookshelf[idx].copyWithMeta(chapterCount: actualCount);
+          }
+        }
+      }
+      if (_bookshelf.isNotEmpty) {
+        await _storage.saveBookshelf(_bookshelf);
+      }
     } catch (e) {
       debugPrint('书架加载失败: $e');
     }
@@ -1026,6 +1042,12 @@ class NovelProvider extends ChangeNotifier {
         _qualityResultShow = false;
         _graphComplianceResult = null;
         _graphCompliancePass = null;
+        // 空数据也同步元数据为0，避免显示旧章节数
+        final nullShelfIdx = _bookshelf.indexWhere((b) => b.id == bookId);
+        if (nullShelfIdx >= 0) {
+          _bookshelf[nullShelfIdx] = _bookshelf[nullShelfIdx].copyWithMeta(chapterCount: 0);
+          await _storage.saveBookshelf(_bookshelf);
+        }
         notifyListeners();
         return false;
       }
@@ -1064,11 +1086,14 @@ class NovelProvider extends ChangeNotifier {
         _graphComplianceResult = null;
         _graphCompliancePass = null;
       }
-      // 同步书架元数据的章节数（确保与实际一致）
+      // 同步书架元数据的章节数（无论章节是否为空都同步）
       final shelfIdx = _bookshelf.indexWhere((b) => b.id == bookId);
-      if (shelfIdx >= 0 && _chapters.isNotEmpty) {
+      if (shelfIdx >= 0) {
         _bookshelf[shelfIdx] = _bookshelf[shelfIdx].copyWithMeta(
           chapterCount: _chapters.length,
+          lastReadChapterId: _currentChapterId ?? 0,
+          readProgress: _chapters.isEmpty ? 0.0 : ((_currentChapterId ?? 0) / _chapters.length).clamp(0.0, 1.0),
+          lastReadAt: DateTime.now(),
         );
         await _storage.saveBookshelf(_bookshelf);
       }
@@ -1152,51 +1177,63 @@ class NovelProvider extends ChangeNotifier {
     String? customRegex,
     int? wordCount,
   }) async {
-    // 1. 先保存旧书（如果有必要）
-    final oldBookId = _currentBookId;
-    if (oldBookId != null) {
+    try {
+      // 1. 保存旧书数据
+      final oldBookId = _currentBookId;
+      if (oldBookId != null) {
+        await _saveCurrentBookData();
+      }
+
+      // 2. 解析章节
+      if (customRegex != null && customRegex.isNotEmpty) {
+        _chapters = ChapterService.splitByRegex(novelText, customRegex);
+      } else if (wordCount != null) {
+        _chapters = ChapterService.splitByWordCount(novelText, wordCount);
+      } else {
+        _chapters = ChapterService.splitByRegex(novelText, '');
+      }
+      _lastParsedText = novelText;
+
+      // 3. 创建书架元数据并加入书架
+      final bookId = DateTime.now().millisecondsSinceEpoch.toString();
+      final book = NovelBook.fromImport(
+        id: bookId,
+        rawFileName: rawFileName,
+        customTitle: customTitle,
+      ).copyWithMeta(chapterCount: _chapters.length);
+      _bookshelf.add(book);
+      await _storage.saveBookshelf(_bookshelf);
+
+      // 4. 先把新书数据存到 Hive（selectBook 会从这里加载）
+      _currentBookId = bookId;
+      _continueChain = [];
+      _continueIdCounter = 1;
+      _chapterGraphMap = {};
+      _mergedGraph = null;
+      _batchMergedGraphs = [];
+      _selectedBaseChapterId = '';
+      _writePreview = '';
+      _precheckResult = null;
+      _qualityResult = null;
+      _qualityResultShow = false;
       await _saveCurrentBookData();
+
+      // 5. 通过 selectBook 完整切换（包含加载、元数据同步、notify）
+      await selectBook(bookId);
+
+      // 6. 保存最新章节数据到 Hive
+      await _saveCurrentBookData();
+
+      // 8. 保存 last_book_id
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_book_id', bookId);
+      notifyListeners();
+
+      debugPrint('[importBook] 导入成功：bookId=$bookId, 章节数=${_chapters.length}');
+    } catch (e, st) {
+      debugPrint('[importBook] 导入失败: $e $st');
+      rethrow;
     }
-
-    // 2. 生成新书ID并解析章节
-    final bookId = DateTime.now().millisecondsSinceEpoch.toString();
-    if (customRegex != null && customRegex.isNotEmpty) {
-      _chapters = ChapterService.splitByRegex(novelText, customRegex);
-    } else if (wordCount != null) {
-      _chapters = ChapterService.splitByWordCount(novelText, wordCount);
-    } else {
-      _chapters = ChapterService.splitByRegex(novelText, '');
-    }
-    _lastParsedText = novelText;
-
-    // 3. 创建书架元数据并立即持久化（章节数 + Hive数据）
-    final book = NovelBook.fromImport(
-      id: bookId,
-      rawFileName: rawFileName,
-      customTitle: customTitle,
-    ).copyWithMeta(chapterCount: _chapters.length);
-    _bookshelf.add(book);
-    await _storage.saveBookshelf(_bookshelf);
-
-    // 4. 直接将当前书籍切换到新书（不经过 selectBook，避免各种早期返回问题）
-    _currentBookId = bookId;
-    _isLoadingBook = false;
-    _mergedGraph = null;
-    _batchMergedGraphs = [];
-    _continueChain = [];
-    _continueIdCounter = 1;
-    _chapterGraphMap = {};
-    _selectedBaseChapterId = '';
-    _writePreview = '';
-    _precheckResult = null;
-    _qualityResult = null;
-    _qualityResultShow = false;
-
-    // 5. 同步保存新书数据到正确的 Hive key
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('last_book_id', bookId);
-    await _saveCurrentBookData();
-    notifyListeners();
   }
 
   /// 删除书籍
