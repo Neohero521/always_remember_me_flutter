@@ -207,21 +207,15 @@ class _ImportScreenState extends State<ImportScreen> {
                                 : null;
                             final regex = _customRegexController.text.trim();
                             final wordCount = int.tryParse(_wordCountController.text);
-                            try {
-                              await context.read<NovelProvider>().importBook(
-                                rawFileName: fileName,
-                                novelText: _fileContent!,
-                                customTitle: title,
-                                customRegex: regex.isNotEmpty ? regex : null,
-                                wordCount: wordCount,
-                              );
-                              if (context.mounted) {
-                                Navigator.pop(context);
-                              }
-                            } catch (e) {
-                              if (e.toString().contains('FILE_MISMATCH')) {
-                                showCuteSnackBar(context, '请先重新选择文件再保存～');
-                              }
+                            await context.read<NovelProvider>().importBook(
+                              rawFileName: fileName,
+                              novelText: _fileContent!,
+                              customTitle: title,
+                              customRegex: regex.isNotEmpty ? regex : null,
+                              wordCount: wordCount,
+                            );
+                            if (context.mounted) {
+                              Navigator.pop(context);
                             }
                           },
                         ),

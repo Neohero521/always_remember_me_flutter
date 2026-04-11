@@ -142,8 +142,10 @@ class StorageService {
       // 没有章节数据也没有解析文本，认为无数据
       final rawChaptersCheck = b.get('${p}chapters');
       final rawLastParsed = b.get('${p}lastParsedText');
+      // String 非空 或 非空 List 才算有章节；空 List [] 视为无数据
       final hasChapters = rawChaptersCheck != null &&
-          (rawChaptersCheck is String && rawChaptersCheck.isNotEmpty || rawChaptersCheck is List);
+          (rawChaptersCheck is String && rawChaptersCheck.isNotEmpty ||
+           rawChaptersCheck is List && (rawChaptersCheck as List).isNotEmpty);
       final hasLastParsed = rawLastParsed != null && rawLastParsed != '';
       if (!hasChapters && !hasLastParsed) return null;
 
@@ -170,6 +172,24 @@ class StorageService {
         } catch (_) {
           chapters = null;
         }
+      } else if (rawChapters != null) {
+        // 兜底：rawChapters 是未知格式，尝试作为 List 处理
+        try {
+          chapters = (rawChapters as List).map((e) => Chapter(
+            id: e['id'] as int,
+            title: e['title'] as String,
+            content: e['content'] as String,
+            hasGraph: e['hasGraph'] as bool? ?? false,
+          )).toList();
+        } catch (_) {
+          chapters = null;
+        }
+      }
+
+      // chapters 反序列化后仍为 null（数据损坏/格式错误），视为无数据
+      if (chapters == null) {
+        print('[Storage] loadNovelDataForBook($bookId): chapters=null（数据损坏），视为无数据');
+        return null;
       }
 
       Map<int, Map<String, dynamic>>? chapterGraphMap;

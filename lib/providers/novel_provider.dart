@@ -961,18 +961,24 @@ class NovelProvider extends ChangeNotifier {
     // 0. 加载书架元数据
     try {
       _bookshelf = await _storage.loadBookshelf();
-      // 尝试加载上次阅读的书
-      final prefs = await SharedPreferences.getInstance();
-      final lastBookId = prefs.getString('last_book_id');
-      if (lastBookId != null && _bookshelf.any((b) => b.id == lastBookId)) {
-        _currentBookId = lastBookId;
-      } else if (_bookshelf.isNotEmpty) {
-        _currentBookId = _bookshelf.first.id;
-      }
+    } catch (e) {
+      debugPrint('书架加载失败: $e');
+      _bookshelf = [];
+    }
 
-      // 启动时校验：遍历书架所有书的章节数元数据，发现不一致则纠正
-      // 注意：这里直接读 Hive 数据，不走 _loadBookData（它会修改 _currentBookId）
-      for (final book in _bookshelf) {
+    // 尝试加载上次阅读的书
+    final prefs = await SharedPreferences.getInstance();
+    final lastBookId = prefs.getString('last_book_id');
+    if (lastBookId != null && _bookshelf.any((b) => b.id == lastBookId)) {
+      _currentBookId = lastBookId;
+    } else if (_bookshelf.isNotEmpty) {
+      _currentBookId = _bookshelf.first.id;
+    }
+
+    // 启动时校验：遍历书架所有书的章节数元数据，发现不一致则纠正
+    // 注意：这里直接读 Hive 数据，不走 _loadBookData（它会修改 _currentBookId）
+    for (final book in _bookshelf) {
+      try {
         final bookData = await _storage.loadNovelDataForBook(book.id);
         final actualCount = bookData?.chapters?.length ?? 0;
         if (book.chapterCount != actualCount) {
@@ -982,17 +988,27 @@ class NovelProvider extends ChangeNotifier {
             _bookshelf[idx] = _bookshelf[idx].copyWithMeta(chapterCount: actualCount);
           }
         }
+      } catch (_) {
+        // 单本书校验失败不影响其他书
       }
-      if (_bookshelf.isNotEmpty) {
+    }
+    if (_bookshelf.isNotEmpty) {
+      try {
         await _storage.saveBookshelf(_bookshelf);
+      } catch (_) {
+        // 书架保存失败不影响启动
       }
+    }
 
-      // 加载当前书的内容数据（在校验之后，此时 _currentBookId 是正确的）
-      if (_currentBookId != null) {
+    // 加载当前书的内容数据（_loadBookData 内部处理数据不存在的情况）
+    if (_currentBookId != null) {
+      final ok = await _loadBookData(_currentBookId!);
+      if (!ok && _bookshelf.isNotEmpty) {
+        // 书数据丢失（如首次导入后立即退出），降级到书架第一本
+        debugPrint('[_loadSettings] _currentBookId=$_currentBookId 数据丢失，降级到书架第一本');
+        _currentBookId = _bookshelf.first.id;
         await _loadBookData(_currentBookId!);
       }
-    } catch (e) {
-      debugPrint('书架加载失败: $e');
     }
 
     // 1. 先从 SharedPreferences 加载 API 配置（小数据，兼容旧版本）
@@ -1057,7 +1073,7 @@ class NovelProvider extends ChangeNotifier {
         return false;
       }
 
-      _chapters = data.chapters ?? [];
+      _chapters = data.chapters?.cast<Chapter>() ?? [];
       _chapterGraphMap = data.chapterGraphMap ?? {};
       _continueChain = data.continueChain ?? [];
       _continueIdCounter = data.continueIdCounter ?? 1;
@@ -1102,7 +1118,7 @@ class NovelProvider extends ChangeNotifier {
         );
         await _storage.saveBookshelf(_bookshelf);
       }
-    debugPrint('[NovelProvider] _loadBookData($bookId): chapters loaded = ${data?.chapters?.length ?? 'null'}');
+    debugPrint('[NovelProvider] _loadBookData($bookId): chapters loaded = ${data.chapters?.length ?? 'null'}');
       notifyListeners();
       return true;
     } catch (e, st) {
@@ -1156,10 +1172,14 @@ class NovelProvider extends ChangeNotifier {
   Future<bool> selectBook(String bookId) async {
     final prevBookId = _currentBookId; // 记录切换前的书籍ID，用于保存
     debugPrint('[NovelProvider] selectBook($bookId) 开始，prevBookId=$prevBookId');
-    // 已选中此书且章节数据已加载，无需切换
-    if (_currentBookId == bookId && _chapters.isNotEmpty) {
-      debugPrint('[NovelProvider] selectBook: 同一本书且已加载，跳过');
-      return true;
+    // 同一本书：确保数据已加载（_loadBookData 内部对已加载情况有 early return）
+    if (_currentBookId == bookId) {
+      debugPrint('[NovelProvider] selectBook: 同一本书，调用 _loadBookData 确保数据最新');
+      final hasData = await _loadBookData(bookId);
+      notifyListeners();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_book_id', bookId);
+      return hasData;
     }
     // 保存旧书（使用切换前的书籍ID）
     if (prevBookId != null) {
@@ -1199,12 +1219,14 @@ class NovelProvider extends ChangeNotifier {
       // 2. 解析章节（复用已有结果，或重新解析）
       List<Chapter> parsed;
       if (_lastParsedText == novelText && _chapters.isNotEmpty) {
-        parsed = _chapters; // 文本没变，直接复用
+        // 文本没变：直接复用当前章节（同一本书作为新书导入时，走这个分支）
+        parsed = _chapters;
       } else if (customRegex != null && customRegex.isNotEmpty) {
         parsed = ChapterService.splitByRegex(novelText, customRegex);
       } else if (wordCount != null) {
         parsed = ChapterService.splitByWordCount(novelText, wordCount);
       } else {
+        // 使用当前保存的正则重新解析
         final regex = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
         parsed = ChapterService.splitByRegex(novelText, regex);
       }
@@ -1249,7 +1271,12 @@ class NovelProvider extends ChangeNotifier {
         debugPrint('[importBook] 保存验证失败，重新保存一次');
         await _saveCurrentBookData();
         final verify2 = await _storage.loadNovelDataForBook(bookId);
-        debugPrint('[importBook] 重新保存后验证: ${verify2?.chapters?.length ?? 'null'} 个章节');
+        if (verify2 == null || verify2.chapters == null || verify2.chapters!.isEmpty) {
+          // 二次保存也失败，抛出错误而不是静默继续
+          debugPrint('[importBook] 二次保存验证也失败！bookId=$bookId，Hive 数据可能损坏');
+          throw StateError('[importBook] 小说保存失败（二次验证不通过），请重启APP后重新导入');
+        }
+        debugPrint('[importBook] 二次保存后验证: ${verify2.chapters!.length} 个章节（已恢复）');
       } else {
         debugPrint('[importBook] 验证通过: ${verify.chapters!.length} 个章节');
       }
