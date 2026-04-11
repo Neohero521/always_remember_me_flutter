@@ -607,7 +607,7 @@ class _WriteScreenState extends State<WriteScreen> {
       if (result != null && result.length > 50) {
         setState(() {
           _batchSuccess++;
-          _batchWriteState = '第 ${i + 1}/${_batchTotal} 章续写完成（${result.length}字），正在更新图谱...';
+          _batchWriteState = '第 ${i + 1}/${_batchTotal} 章续写完成（${result?.length ?? 0}字），正在更新图谱...';
         });
         // 图谱已在 generateWrite 内部自动更新（autoUpdateGraphAfterWrite）
       } else {
