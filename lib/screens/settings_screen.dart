@@ -505,7 +505,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '版本 1.0.0 · 小说续写辅助工具',
+                            '版本 3.0.0 · 小说续写辅助工具',
                             style: TextStyle(
                               color: CutePixelColors.textMuted,
                               fontSize: 11,
