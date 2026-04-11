@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../screens/write/write_screen.dart';
+import '../../features/writing/presentation/screens/write_screen.dart';
 import '../../screens/bookshelf/bookshelf_screen.dart';
 import '../../screens/reader/reader_screen.dart';
 import '../../screens/chapters/chapters_screen.dart';
