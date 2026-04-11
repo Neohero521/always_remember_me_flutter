@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/novel_provider.dart';
-import '../theme/game_console_theme.dart';
-import 'router.dart';
+import '../theme/v4_colors.dart';
 
+/// AppDrawer v4.0 - 精简版 Drawer（5项菜单）
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -28,55 +28,48 @@ class AppDrawer extends StatelessWidget {
               bookTitle: currentBook?.title,
               hasNovel: hasNovel,
             ),
-            const Divider(height: 1, color: CutePixelColors.borderDark),
-            // 主导航菜单
+            const Divider(height: 1, color: V4Colors.divider),
+            // 主导航菜单（5项）
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 children: [
-                  _DrawerItem(
-                    icon: Icons.auto_stories,
-                    emoji: '✍️',
-                    label: '续写',
-                    subtitle: 'AI 续写核心',
-                    onTap: () => _navigateTo(context, AppRoutes.home),
-                  ),
-                  _DrawerItem(
-                    icon: Icons.library_books,
-                    emoji: '📚',
-                    label: '我的书架',
-                    subtitle: '${provider.bookshelf.length} 本书',
-                    onTap: () => _navigateTo(context, AppRoutes.bookshelf),
-                  ),
-                  _DrawerItem(
-                    icon: Icons.list_alt,
+                  _DrawerMenuItem(
                     emoji: '📖',
                     label: '章节管理',
-                    subtitle: hasNovel ? '${provider.chapters.length} 章节' : '暂无章节',
-                    onTap: () => _navigateTo(context, AppRoutes.chapters),
+                    subtitle: '图谱生成、批量生成、章节状态',
+                    onTap: () => _navigateTo(context, '/chapters'),
                   ),
-                  const Divider(height: 1, color: CutePixelColors.borderDark),
-                  _DrawerItem(
-                    icon: Icons.account_tree,
+                  _DrawerMenuItem(
                     emoji: '🌲',
                     label: '全局图谱',
-                    subtitle: '查看/导出/导入',
-                    onTap: () => _navigateTo(context, AppRoutes.graph),
+                    subtitle: '合并后的完整知识图谱',
+                    onTap: () => _navigateTo(context, '/graph'),
                   ),
-                  _DrawerItem(
-                    icon: Icons.file_upload,
-                    emoji: '📥',
-                    label: '导入小说',
-                    subtitle: '从 TXT 导入',
-                    onTap: () => _navigateTo(context, AppRoutes.import),
+                  _DrawerMenuItem(
+                    emoji: '📤',
+                    label: '导入/导出图谱',
+                    subtitle: 'JSON 格式管理',
+                    onTap: () => _navigateTo(context, '/graph-import-export'),
                   ),
-                  const Divider(height: 1, color: CutePixelColors.borderDark),
-                  _DrawerItem(
-                    icon: Icons.settings,
+                  _DrawerMenuItem(
                     emoji: '⚙️',
+                    label: '续写参数',
+                    subtitle: '前置校验开关等',
+                    onTap: () => _navigateTo(context, '/write-settings'),
+                  ),
+                  const Divider(height: 24, indent: 16, endIndent: 16, color: V4Colors.divider),
+                  _DrawerMenuItem(
+                    emoji: '📱',
                     label: '设置',
-                    subtitle: '续写参数、主题',
-                    onTap: () => _navigateTo(context, AppRoutes.settings),
+                    subtitle: '阅读器、主题、关于',
+                    onTap: () => _navigateTo(context, '/settings'),
+                  ),
+                  _DrawerMenuItem(
+                    emoji: 'ℹ️',
+                    label: '关于',
+                    subtitle: '版本信息',
+                    onTap: () => _showAboutDialog(context),
                   ),
                 ],
               ),
@@ -86,7 +79,7 @@ class AppDrawer extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: const BoxDecoration(
                 border: Border(
-                  top: BorderSide(color: CutePixelColors.borderDark, width: 1),
+                  top: BorderSide(color: V4Colors.divider, width: 1),
                 ),
               ),
               child: const Row(
@@ -95,16 +88,16 @@ class AppDrawer extends StatelessWidget {
                     'Always Remember Me',
                     style: TextStyle(
                       fontSize: 12,
-                      color: CutePixelColors.textMuted,
+                      color: V4Colors.textSecondary,
                       fontFamily: 'monospace',
                     ),
                   ),
                   Spacer(),
                   Text(
-                    'v3.0.0',
+                    'v4.0.0',
                     style: TextStyle(
                       fontSize: 12,
-                      color: CutePixelColors.textMuted,
+                      color: V4Colors.textSecondary,
                     ),
                   ),
                 ],
@@ -117,13 +110,43 @@ class AppDrawer extends StatelessWidget {
   }
 
   void _navigateTo(BuildContext context, String route) {
-    // 关闭 Drawer
     Navigator.of(context).pop();
-    // 如果已经在目标页面，不重复跳转
-    if (route == AppRoutes.home && ModalRoute.of(context)?.settings.name == '/') {
-      return;
+    if (route.startsWith('/')) {
+      Navigator.of(context).pushNamed(route);
     }
-    Navigator.of(context).pushNamed(route);
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Text('🐋 ', style: TextStyle(fontSize: 24)),
+            Text('Always Remember Me'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('版本 4.0.0'),
+            SizedBox(height: 8),
+            Text(
+              '一个可爱的小说续写工具，支持知识图谱、AI续写、批量操作等功能。',
+              style: TextStyle(fontSize: 13, color: V4Colors.textSecondary),
+            ),
+          ],
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -136,18 +159,10 @@ class _DrawerHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 160,
+      height: 140,
       width: double.infinity,
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            CutePixelColors.lavender,
-            CutePixelColors.pinkDark,
-          ],
-        ),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(0)),
+        gradient: V4Colors.drawerHeaderGradient,
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -170,7 +185,7 @@ class _DrawerHeader extends StatelessWidget {
           const Spacer(),
           if (bookTitle != null) ...[
             Text(
-              '当前: 《$bookTitle》',
+              '当前：《$bookTitle》',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
@@ -178,32 +193,6 @@ class _DrawerHeader extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
-            if (hasNovel)
-              Builder(
-                builder: (ctx) => GestureDetector(
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(ctx).pushNamed(AppRoutes.bookshelf);
-                  },
-                  child: const Text(
-                    '👆 点击切换书籍',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
-              )
-            else
-              const Text(
-                '📥 还没有书籍，请导入',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                ),
-              ),
           ] else ...[
             const Text(
               '✨ 还没有选中书籍',
@@ -219,15 +208,13 @@ class _DrawerHeader extends StatelessWidget {
   }
 }
 
-class _DrawerItem extends StatelessWidget {
-  final IconData icon;
+class _DrawerMenuItem extends StatelessWidget {
   final String emoji;
   final String label;
   final String? subtitle;
   final VoidCallback onTap;
 
-  const _DrawerItem({
-    required this.icon,
+  const _DrawerMenuItem({
     required this.emoji,
     required this.label,
     this.subtitle,
@@ -242,7 +229,7 @@ class _DrawerItem extends StatelessWidget {
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: CutePixelColors.bg3,
+          color: V4Colors.primary.withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Center(
@@ -254,7 +241,7 @@ class _DrawerItem extends StatelessWidget {
         style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w500,
-          color: CutePixelColors.text,
+          color: V4Colors.textPrimary,
         ),
       ),
       subtitle: subtitle != null
@@ -262,13 +249,13 @@ class _DrawerItem extends StatelessWidget {
               subtitle!,
               style: const TextStyle(
                 fontSize: 12,
-                color: CutePixelColors.textMuted,
+                color: V4Colors.textSecondary,
               ),
             )
           : null,
       trailing: const Icon(
         Icons.chevron_right,
-        color: CutePixelColors.textMuted,
+        color: V4Colors.textSecondary,
         size: 20,
       ),
       onTap: onTap,
