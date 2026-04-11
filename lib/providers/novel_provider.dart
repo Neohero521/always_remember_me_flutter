@@ -1064,6 +1064,14 @@ class NovelProvider extends ChangeNotifier {
         _graphComplianceResult = null;
         _graphCompliancePass = null;
       }
+      // 同步书架元数据的章节数（确保与实际一致）
+      final shelfIdx = _bookshelf.indexWhere((b) => b.id == bookId);
+      if (shelfIdx >= 0 && _chapters.isNotEmpty) {
+        _bookshelf[shelfIdx] = _bookshelf[shelfIdx].copyWithMeta(
+          chapterCount: _chapters.length,
+        );
+        await _storage.saveBookshelf(_bookshelf);
+      }
     debugPrint('[NovelProvider] _loadBookData($bookId): chapters loaded = ${data?.chapters?.length ?? 'null'}');
       notifyListeners();
       return true;
