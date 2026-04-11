@@ -108,7 +108,7 @@ class StorageService {
 
     await b.put('${p}continueIdCounter', data.continueIdCounter ?? 1);
     await b.put('${p}mergedGraph', data.mergedGraph);
-    await b.put('${p}batchMergedGraphs', data.batchMergedGraphs ?? []);
+    await b.put('${p}batchMergedGraphs', (data.batchMergedGraphs ?? []).map((g) => json.encode(g)).toList());
     await b.put('${p}lastParsedText', data.lastParsedText ?? '');
     await b.put('${p}currentRegexIndex', data.currentRegexIndex ?? 0);
     await b.put('${p}customRegex', data.customRegex ?? '');
