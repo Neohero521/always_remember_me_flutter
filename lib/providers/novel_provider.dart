@@ -44,6 +44,7 @@ class NovelProvider extends ChangeNotifier {
   String _lastParsedText = '';
   List<RegexMatchResult> _sortedRegexList = [];
   String _customRegex = '';
+  String _currentAutoRegex = '';  // 自动匹配时使用的正则
 
   // === 图谱状态 ===
   Map<int, Map<String, dynamic>> _chapterGraphMap = {};
@@ -157,6 +158,7 @@ class NovelProvider extends ChangeNotifier {
 
     if (customRegex != null && customRegex.isNotEmpty) {
       useRegex = customRegex;
+      _currentAutoRegex = '';
     } else {
       if (_lastParsedText != text) {
         _lastParsedText = text;
@@ -167,6 +169,7 @@ class NovelProvider extends ChangeNotifier {
       }
       if (_sortedRegexList.isEmpty) return;
       useRegex = _sortedRegexList[_currentRegexIndex].preset.regex;
+      _currentAutoRegex = useRegex;  // 保存自动匹配使用的正则
     }
 
     _chapters = ChapterService.splitByRegex(text, useRegex);
@@ -1184,14 +1187,25 @@ class NovelProvider extends ChangeNotifier {
         await _saveCurrentBookData();
       }
 
-      // 2. 解析章节
-      if (customRegex != null && customRegex.isNotEmpty) {
-        _chapters = ChapterService.splitByRegex(novelText, customRegex);
-      } else if (wordCount != null) {
-        _chapters = ChapterService.splitByWordCount(novelText, wordCount);
+      // 2. 复用已有的解析结果（如果文本相同且已解析），否则重新解析
+      List<Chapter> chaptersToSave;
+      if (_lastParsedText == novelText && _chapters.isNotEmpty) {
+        debugPrint('[importBook] 复用已有解析结果: ${_chapters.length} 个章节');
+        chaptersToSave = _chapters;
       } else {
-        _chapters = ChapterService.splitByRegex(novelText, '');
+        debugPrint('[importBook] 重新解析章节（文本变化或未解析）');
+        if (customRegex != null && customRegex.isNotEmpty) {
+          chaptersToSave = ChapterService.splitByRegex(novelText, customRegex);
+        } else if (wordCount != null) {
+          chaptersToSave = ChapterService.splitByWordCount(novelText, wordCount);
+        } else {
+          // 使用自动匹配时保存的正则，而非空字符串兜底
+          final regexToUse = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
+          chaptersToSave = ChapterService.splitByRegex(novelText, regexToUse);
+        }
       }
+      debugPrint('[importBook] 最终章节数: ${chaptersToSave.length} 个');
+      _chapters = chaptersToSave;
       _lastParsedText = novelText;
 
       // 3. 创建书架元数据并加入书架
