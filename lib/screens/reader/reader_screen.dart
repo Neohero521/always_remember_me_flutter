@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/novel_provider.dart';
 import '../../models/chapter.dart';
 
@@ -19,11 +21,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _showControls = true;
   int? _lastChapterId;  // 缓存退出时要保存的章节 ID
   int? _lastFontSize;  // 缓存退出时要保存的字号
+  String? _currentBookId;
+  // F4: 当前章节的ScrollController用于保存位置
+  ScrollController? _currentScrollController;
 
   @override
   void initState() {
     super.initState();
     final provider = context.read<NovelProvider>();
+
+    _currentBookId = provider.currentBookId;
 
     // 恢复阅读进度
     if (widget.initialChapterId != null) {
@@ -49,7 +56,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   @override
   void dispose() {
-    // 使用缓存的值保存阅读进度，完全不依赖 dispose 时的 context
+    // F4: 保存当前章节滚动位置
+    _saveCurrentScrollPosition();
+    if (_currentBookId != null && _lastChapterId != null && _currentScrollController != null) {
+      _persistScrollPosition(_currentBookId!, _lastChapterId!, _currentScrollController!);
+    }
     if (_lastChapterId != null) {
       final provider = context.read<NovelProvider>();
       provider.updateReaderState(
@@ -61,7 +72,37 @@ class _ReaderScreenState extends State<ReaderScreen> {
     super.dispose();
   }
 
+  /// F4: 保存当前滚动位置到 SharedPreferences
+  Future<void> _persistScrollPosition(String bookId, int chapterId, ScrollController controller) async {
+    try {
+      final maxExtent = controller.position.maxScrollExtent;
+      if (maxExtent <= 0) return;
+      final fraction = (controller.offset / maxExtent).clamp(0.0, 1.0);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('reader_scroll_${bookId}_$chapterId', fraction);
+    } catch (_) {}
+  }
+
+  /// F4: 加载章节滚动位置
+  Future<double> _loadScrollFraction(String bookId, int chapterId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getDouble('reader_scroll_${bookId}_$chapterId') ?? 0.0;
+    } catch (_) {
+      return 0.0;
+    }
+  }
+
+  void _saveCurrentScrollPosition() {
+    if (_currentBookId != null && _lastChapterId != null && _currentScrollController != null) {
+      _persistScrollPosition(_currentBookId!, _lastChapterId!, _currentScrollController!);
+    }
+  }
+
   void _onPageChanged(int idx, NovelProvider provider) {
+    // F4: 先保存旧章节位置
+    _saveCurrentScrollPosition();
+
     setState(() => _currentIndex = idx);
     // 同步更新缓存
     if (idx < provider.chapters.length) {
@@ -72,11 +113,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
     provider.updateReaderState(chapterId: chapter.id);
   }
 
+  /// F4: 传递ScrollController给子页面
+  void _setCurrentScrollController(ScrollController controller) {
+    _currentScrollController = controller;
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<NovelProvider>();
     final chapters = provider.chapters;
     final fontSize = provider.readerFontSize;
+    final bookId = provider.currentBookId ?? '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F0E8),
@@ -91,8 +138,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
               onPageChanged: (idx) => _onPageChanged(idx, provider),
               itemBuilder: (context, index) {
                 return _ChapterPage(
+                  key: ValueKey('${bookId}_${chapters[index].id}'),
                   chapter: chapters[index],
                   fontSize: fontSize,
+                  bookId: bookId,
+                  onScrollControllerReady: _setCurrentScrollController,
                 );
               },
             ),
@@ -360,16 +410,66 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
-/// 单个章节页面（支持字号）
-class _ChapterPage extends StatelessWidget {
+/// F4: 单个章节页面（支持字号 + 滚动位置持久化）
+class _ChapterPage extends StatefulWidget {
   final Chapter chapter;
   final int fontSize;
+  final String bookId;
+  final void Function(ScrollController) onScrollControllerReady;
 
-  const _ChapterPage({required this.chapter, required this.fontSize});
+  const _ChapterPage({
+    super.key,
+    required this.chapter,
+    required this.fontSize,
+    required this.bookId,
+    required this.onScrollControllerReady,
+  });
+
+  @override
+  State<_ChapterPage> createState() => _ChapterPageState();
+}
+
+class _ChapterPageState extends State<_ChapterPage> {
+  late ScrollController _scrollController;
+  bool _scrollRestored = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    widget.onScrollControllerReady(_scrollController);
+
+    // F4: 恢复滚动位置（在布局完成后）
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _restoreScrollPosition();
+    });
+  }
+
+  Future<void> _restoreScrollPosition() async {
+    if (_scrollRestored) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final fraction = prefs.getDouble('reader_scroll_${widget.bookId}_${widget.chapter.id}') ?? 0.0;
+      if (fraction > 0.0 && mounted) {
+        _scrollRestored = true;
+        final maxExtent = _scrollController.position.maxScrollExtent;
+        if (maxExtent > 0) {
+          _scrollController.jumpTo((fraction * maxExtent).clamp(0.0, maxExtent));
+        }
+      }
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: EdgeInsets.only(
         top: MediaQuery.of(context).padding.top + 60,
         bottom: MediaQuery.of(context).padding.bottom + 180,
@@ -381,9 +481,9 @@ class _ChapterPage extends StatelessWidget {
         children: [
           // 章节标题
           Text(
-            chapter.title,
+            widget.chapter.title,
             style: TextStyle(
-              fontSize: fontSize + 5,
+              fontSize: widget.fontSize + 5,
               fontWeight: FontWeight.bold,
               color: const Color(0xFF2C2C2C),
               height: 1.4,
@@ -392,7 +492,7 @@ class _ChapterPage extends StatelessWidget {
           const SizedBox(height: 20),
 
           // 章节内容（分段）
-          ...chapter.content
+          ...widget.chapter.content
               .split('\n')
               .where((p) => p.trim().isNotEmpty)
               .map((paragraph) => Padding(
@@ -400,7 +500,7 @@ class _ChapterPage extends StatelessWidget {
                     child: Text(
                       paragraph.trim(),
                       style: TextStyle(
-                        fontSize: fontSize.toDouble(),
+                        fontSize: widget.fontSize.toDouble(),
                         color: const Color(0xFF3C3C3C),
                         height: 1.8,
                         letterSpacing: 0.3,
