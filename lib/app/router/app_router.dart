@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/writing/presentation/screens/write_screen.dart';
-import '../../screens/bookshelf/bookshelf_screen.dart';
-import '../../screens/reader/reader_screen.dart';
+import '../../features/bookshelf/presentation/screens/bookshelf_screen.dart';
+import '../../features/reader/presentation/screens/reader_screen.dart';
 import '../../screens/chapters/chapters_screen.dart';
 import '../../screens/graph/graph_viewer_screen.dart';
 import '../../screens/graph/graph_import_export_screen.dart';
