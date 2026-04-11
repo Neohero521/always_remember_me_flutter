@@ -969,12 +969,9 @@ class NovelProvider extends ChangeNotifier {
       } else if (_bookshelf.isNotEmpty) {
         _currentBookId = _bookshelf.first.id;
       }
-      // 加载当前书的内容数据
-      if (_currentBookId != null) {
-        await _loadBookData(_currentBookId!);
-      }
 
       // 启动时校验：遍历书架所有书的章节数元数据，发现不一致则纠正
+      // 注意：这里直接读 Hive 数据，不走 _loadBookData（它会修改 _currentBookId）
       for (final book in _bookshelf) {
         final bookData = await _storage.loadNovelDataForBook(book.id);
         final actualCount = bookData?.chapters?.length ?? 0;
@@ -988,6 +985,11 @@ class NovelProvider extends ChangeNotifier {
       }
       if (_bookshelf.isNotEmpty) {
         await _storage.saveBookshelf(_bookshelf);
+      }
+
+      // 加载当前书的内容数据（在校验之后，此时 _currentBookId 是正确的）
+      if (_currentBookId != null) {
+        await _loadBookData(_currentBookId!);
       }
     } catch (e) {
       debugPrint('书架加载失败: $e');
@@ -1189,8 +1191,10 @@ class NovelProvider extends ChangeNotifier {
       // 1. 保存旧书数据（同步等待完成）
       final oldBookId = _currentBookId;
       if (oldBookId != null) {
-        await _saveCurrentBookData();
+        await _saveCurrentBookData(prevBookId: oldBookId);
       }
+      // 取消旧的防抖定时器（parseChapters 会注册新的，但旧书的 save 已经完成，无需重复）
+      _persistTimer?.cancel();
 
       // 2. 解析章节（复用已有结果，或重新解析）
       List<Chapter> parsed;
