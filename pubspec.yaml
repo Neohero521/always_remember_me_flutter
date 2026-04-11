@@ -1,7 +1,7 @@
 name: always_remember_me
 description: 小说续写器 - 基于 Always_remember_me 扩展移植的 Flutter App
 publish_to: 'none'
-version: 5.0.0+1
+version: 5.0.0
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
