@@ -763,6 +763,18 @@ class NovelProvider extends ChangeNotifier {
     _schedulePersist();
   }
 
+  void addToContinueChain(String content, {String? title, int? baseChapterId}) {
+    final newChapter = ContinueChapter(
+      id: _continueIdCounter++,
+      title: title ?? '续写章节 ${_continueChain.length + 1}',
+      content: content,
+      baseChapterId: baseChapterId ?? _currentChapterId ?? -1,
+    );
+    _continueChain.add(newChapter);
+    notifyListeners();
+    _schedulePersist();
+  }
+
   void clearContinueChain() {
     _continueChain = [];
     _continueIdCounter = 1;
