@@ -142,10 +142,8 @@ class StorageService {
       // 没有章节数据也没有解析文本，认为无数据
       final rawChaptersCheck = b.get('${p}chapters');
       final rawLastParsed = b.get('${p}lastParsedText');
-      // String 非空 或 非空 List 才算有章节；空 List [] 视为无数据
-      final hasChapters = rawChaptersCheck != null &&
-          (rawChaptersCheck is String && rawChaptersCheck.isNotEmpty ||
-           rawChaptersCheck is List && (rawChaptersCheck as List).isNotEmpty);
+      // 修复：key 存在即认为有数据（即使是空列表也是合法状态）
+      final hasChapters = b.containsKey('${p}chapters');
       final hasLastParsed = rawLastParsed != null && rawLastParsed != '';
       if (!hasChapters && !hasLastParsed) return null;
 

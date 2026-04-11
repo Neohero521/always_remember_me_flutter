@@ -49,7 +49,6 @@ class NovelProvider extends ChangeNotifier {
   List<RegexMatchResult> _sortedRegexList = [];
   String _customRegex = '';
   String _currentAutoRegex = '';  // 自动匹配时使用的正则
-  String _lastImportCacheKey = '';  // 上次导入时的缓存key（bookId|text），用于区分不同书的缓存
 
   // === 图谱状态 ===
   Map<int, Map<String, dynamic>> _chapterGraphMap = {};
@@ -1317,25 +1316,15 @@ class NovelProvider extends ChangeNotifier {
       // 取消旧的防抖定时器（parseChapters 会注册新的，但旧书的 save 已经完成，无需重复）
       _persistTimer?.cancel();
 
-      // 2. 解析章节（复用已有结果，或重新解析）
-      // 复用条件：文本相同 AND 章节非空 AND 当前选中的书ID等于上次导入的书ID
-      // 这样可以区分"同一本书重新导入"（应该复用）和"不同书导入"（应该重新解析）
+      // 2. 解析章节（直接解析，不缓存，避免缓存错误数据导致问题）
       List<Chapter> parsed;
-      final cacheKey = '$_currentBookId|$novelText';
-      if (_lastImportCacheKey == cacheKey && _chapters.isNotEmpty) {
-        // 同一本书的同一文本：复用
-        parsed = _chapters;
+      if (customRegex != null && customRegex.isNotEmpty) {
+        parsed = ChapterService.splitByRegex(novelText, customRegex);
+      } else if (wordCount != null) {
+        parsed = ChapterService.splitByWordCount(novelText, wordCount);
       } else {
-        // 不同书，或文本已变化：强制重新解析
-        if (customRegex != null && customRegex.isNotEmpty) {
-          parsed = ChapterService.splitByRegex(novelText, customRegex);
-        } else if (wordCount != null) {
-          parsed = ChapterService.splitByWordCount(novelText, wordCount);
-        } else {
-          final regex = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
-          parsed = ChapterService.splitByRegex(novelText, regex);
-        }
-        _lastImportCacheKey = cacheKey;
+        final regex = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
+        parsed = ChapterService.splitByRegex(novelText, regex);
       }
 
       // 3. 生成新书ID，创建书架元数据（同步写入，不等异步）
@@ -1374,20 +1363,20 @@ class NovelProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_book_id', bookId);
 
-      // 8. 验证保存成功
+      // 8. 验证保存成功（只检查 null，空列表是合法状态）
       final verify = await _storage.loadNovelDataForBook(bookId);
-      if (verify == null || verify.chapters == null || verify.chapters!.isEmpty) {
-        debugPrint('[importBook] 保存验证失败，重新保存一次');
+      if (verify == null) {
+        debugPrint('[importBook] 保存验证失败（verify==null），重新保存一次');
         await _saveCurrentBookData();
         final verify2 = await _storage.loadNovelDataForBook(bookId);
-        if (verify2 == null || verify2.chapters == null || verify2.chapters!.isEmpty) {
-          // 二次保存也失败，抛出错误而不是静默继续
+        if (verify2 == null) {
+          // 二次保存也失败，抛出错误
           debugPrint('[importBook] 二次保存验证也失败！bookId=$bookId，Hive 数据可能损坏');
           throw StateError('[importBook] 小说保存失败（二次验证不通过），请重启APP后重新导入');
         }
-        debugPrint('[importBook] 二次保存后验证: ${verify2.chapters!.length} 个章节（已恢复）');
+        debugPrint('[importBook] 二次保存后验证成功: ${verify2.chapters?.length ?? 0} 个章节（已恢复）');
       } else {
-        debugPrint('[importBook] 验证通过: ${verify.chapters!.length} 个章节');
+        debugPrint('[importBook] 验证通过: ${verify.chapters?.length ?? 0} 个章节');
       }
 
       notifyListeners();
