@@ -83,8 +83,15 @@ class StorageService {
   Future<void> saveNovelDataForBook(String bookId, NovelPersistData data) async {
     final b = box;
     final p = '${bookId}_';
+    print('[Storage] saveNovelDataForBook($bookId): chapters=${data.chapters?.length ?? 'null'}, lastParsedLen=${data.lastParsedText?.length ?? 'null'}');
 
-    if (data.chapters != null) await b.put('${p}chapters', data.chapters!);
+    if (data.chapters != null) {
+      final chaptersJson = data.chapters!.map((c) => {'id': c.id, 'title': c.title, 'content': c.content, 'hasGraph': c.hasGraph}).toList();
+      await b.put('${p}chapters', json.encode(chaptersJson));
+      print('[Storage]   chapters saved as JSON, encoded len=${json.encode(chaptersJson).length}');
+    } else {
+      print('[Storage]   chapters is null, not saving');
+    }
 
     if (data.chapterGraphMap != null) {
       final serialized = <String, String>{};
@@ -94,7 +101,10 @@ class StorageService {
       await b.put('${p}chapterGraphMap', serialized);
     }
 
-    if (data.continueChain != null) await b.put('${p}continueChain', data.continueChain!);
+    if (data.continueChain != null) {
+      final chainJson = data.continueChain!.map((c) => {'id': c.id, 'title': c.title, 'content': c.content, 'baseChapterId': c.baseChapterId}).toList();
+      await b.put('${p}continueChain', json.encode(chainJson));
+    }
 
     await b.put('${p}continueIdCounter', data.continueIdCounter ?? 1);
     await b.put('${p}mergedGraph', data.mergedGraph);
@@ -129,9 +139,38 @@ class StorageService {
       final b = box;
       final p = '${bookId}_';
       if (!b.isOpen) return null;
-      if (b.get('${p}chapters') == null && b.get('${p}lastParsedText') == null) return null;
+      // 没有章节数据也没有解析文本，认为无数据
+      final rawChaptersCheck = b.get('${p}chapters');
+      final rawLastParsed = b.get('${p}lastParsedText');
+      final hasChapters = rawChaptersCheck != null &&
+          (rawChaptersCheck is String && rawChaptersCheck.isNotEmpty || rawChaptersCheck is List);
+      final hasLastParsed = rawLastParsed != null && rawLastParsed != '';
+      if (!hasChapters && !hasLastParsed) return null;
 
-      final chapters = b.get('${p}chapters') as List<Chapter>?;
+      // 尝试从 JSON 字符串加载章节
+      List<Chapter>? chapters;
+      final rawChapters = b.get('${p}chapters');
+      if (rawChapters is String) {
+        final list = json.decode(rawChapters) as List;
+        chapters = list.map((e) => Chapter(
+          id: e['id'] as int,
+          title: e['title'] as String,
+          content: e['content'] as String,
+          hasGraph: e['hasGraph'] as bool? ?? false,
+        )).toList();
+      } else if (rawChapters is List && rawChapters.isNotEmpty) {
+        // 兼容旧数据：Hive 对象列表（已废弃，但首次迁移时可能存在）
+        try {
+          chapters = rawChapters.whereType<Chapter>().map((c) => Chapter(
+            id: c.id,
+            title: c.title,
+            content: c.content,
+            hasGraph: c.hasGraph,
+          )).toList();
+        } catch (_) {
+          chapters = null;
+        }
+      }
 
       Map<int, Map<String, dynamic>>? chapterGraphMap;
       final rawGraphMap = b.get('${p}chapterGraphMap') as Map?;
@@ -147,7 +186,30 @@ class StorageService {
         }
       }
 
-      final continueChain = b.get('${p}continueChain') as List<ContinueChapter>?;
+      // 尝试从 JSON 字符串加载续写链
+      List<ContinueChapter>? continueChain;
+      final rawChain = b.get('${p}continueChain');
+      if (rawChain is String) {
+        final list = json.decode(rawChain) as List;
+        continueChain = list.map((e) => ContinueChapter(
+          id: e['id'] as int,
+          title: e['title'] as String,
+          content: e['content'] as String,
+          baseChapterId: e['baseChapterId'] as int? ?? 0,
+        )).toList();
+      } else if (rawChain is List && rawChain.isNotEmpty) {
+        // 兼容旧数据
+        try {
+          continueChain = rawChain.whereType<ContinueChapter>().map((c) => ContinueChapter(
+            id: c.id,
+            title: c.title,
+            content: c.content,
+            baseChapterId: c.baseChapterId,
+          )).toList();
+        } catch (_) {
+          continueChain = null;
+        }
+      }
 
       String? mergedGraph;
       final rawMerged = b.get('${p}mergedGraph');

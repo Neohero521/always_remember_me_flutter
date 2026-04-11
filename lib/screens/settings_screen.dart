@@ -53,7 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         : _apiUrlController.text.trim();
 
     if (modelToSave.isEmpty) {
-      showPixelSnackBar(context, '⚠️ 请先获取并选择模型', isError: true);
+      showCuteSnackBar(context, '⚠️ 请先获取并选择模型', isError: true);
       return;
     }
 
@@ -68,7 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (!mounted) return;
-    showPixelSnackBar(context, '✅ 设置已保存');
+    showCuteSnackBar(context, '✨ 设置已保存');
   }
 
   Future<void> _fetchModels() async {
@@ -299,91 +299,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: GameColors.bg,
+      backgroundColor: CutePixelColors.bg,
       appBar: AppBar(
-        backgroundColor: GameColors.bg2,
+        backgroundColor: CutePixelColors.bg2,
         elevation: 0,
-        title: const Text(
-          '⚙️ 设置',
-          style: TextStyle(
-            color: GameColors.textLight,
-            fontFamily: 'monospace',
-            fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
-            fontWeight: FontWeight.bold,
-          ),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('⚙️', style: TextStyle(fontSize: 20)),
+            SizedBox(width: 8),
+            Text(
+              '设置',
+              style: TextStyle(
+                color: CutePixelColors.text,
+                fontFamily: 'monospace',
+                fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
-        iconTheme: const IconThemeData(color: GameColors.textLight),
+        iconTheme: const IconThemeData(color: CutePixelColors.text),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+        ),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         children: [
           // API配置卡片
-          _buildPixelSectionCard(
-            title: '🔑 API 配置',
+          _buildCuteSectionCard(
+            emoji: '🔑',
+            title: 'API 配置',
             children: [
-              _buildPixelTextField(
+              _buildCuteTextField(
                 controller: _apiUrlController,
                 label: 'API 地址',
                 hint: 'https://api.openai.com/v1',
                 helperText: 'AI 接口的 base URL',
               ),
-              const SizedBox(height: 12),
-              _buildPixelTextField(
+              const SizedBox(height: 14),
+              _buildCuteTextField(
                 controller: _apiKeyController,
                 label: 'API Key',
                 hint: '输入你的 API Key',
                 helperText: '用于调用 AI 续写服务',
                 isPassword: true,
               ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: _isLoadingModels ? null : _fetchModels,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: GameColors.buttonDecoration(
-                    color: _isLoadingModels ? GameColors.bg3 : GameColors.blue,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (_isLoadingModels)
-                        const SizedBox(
-                          width: 14, height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: GameColors.textLight,
-                          ),
-                        )
-                      else
-                        const Text('📋', style: TextStyle(fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isLoadingModels ? '加载中...' : '获取模型列表',
-                        style: const TextStyle(
-                          color: GameColors.textLight,
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              const SizedBox(height: 14),
+              CutePixelButton(
+                label: _isLoadingModels ? '加载中...' : '获取模型列表',
+                emoji: _isLoadingModels ? null : '📋',
+                color: _isLoadingModels ? CutePixelColors.bg3 : CutePixelColors.lavender,
+                onPressed: _isLoadingModels ? null : _fetchModels,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: _selectedModel != null
-                      ? GameColors.blue.withOpacity(0.15)
-                      : GameColors.bg3,
-                  borderRadius: BorderRadius.circular(4),
+                      ? CutePixelColors.lavender.withOpacity(0.15)
+                      : CutePixelColors.bg3,
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: _selectedModel != null
-                        ? GameColors.blue
-                        : GameColors.borderLight,
+                        ? CutePixelColors.lavender
+                        : CutePixelColors.borderDark,
                     width: 2,
                   ),
                 ),
@@ -391,9 +373,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text(
                       _selectedModel != null ? '🤖' : 'ℹ️',
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: 16),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         _selectedModel != null
@@ -401,10 +383,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : '未选择模型',
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.w600,
                           color: _selectedModel != null
-                              ? GameColors.blueBright
-                              : GameColors.textMuted,
+                              ? CutePixelColors.lavender
+                              : CutePixelColors.textMuted,
                         ),
                       ),
                     ),
@@ -414,31 +396,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (_modelsError != null) ...[
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: GameColors.red.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: GameColors.red, width: 1),
+                    color: CutePixelColors.coral.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: CutePixelColors.coral, width: 2),
                   ),
                   child: Text(
                     _modelsError!,
-                    style: const TextStyle(color: GameColors.red, fontSize: 11),
+                    style: const TextStyle(color: CutePixelColors.coral, fontSize: 11),
                   ),
                 ),
               ],
               if (_availableModels.isNotEmpty) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 const Text(
                   '📋 选择模型',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: GameColors.textLight,
+                    color: CutePixelColors.text,
                     fontFamily: 'monospace',
                   ),
                 ),
                 const SizedBox(height: 8),
-                ..._availableModels.map((model) => _buildModelOptionPixel(
+                ..._availableModels.map((model) => _buildModelOptionCute(
                   id: model['id']!,
                   name: model['name']!,
                   desc: model['desc'] ?? '',
@@ -447,20 +429,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           // 续写设置卡片
-          _buildPixelSectionCard(
-            title: '✏️ 续写设置',
+          _buildCuteSectionCard(
+            emoji: '✏️',
+            title: '续写设置',
             children: [
-              _buildPixelTextField(
+              _buildCuteTextField(
                 controller: _wordCountController,
                 label: '续写字数',
                 hint: '2000',
                 helperText: '每次续写的目标字数',
               ),
-              const SizedBox(height: 12),
-              _buildPixelSwitchTile(
+              const SizedBox(height: 14),
+              _buildCuteSwitchTile(
+                emoji: '✨',
                 title: '质量校验',
                 subtitle: '续写后进行质量评估',
                 value: _enableQualityCheck,
@@ -468,10 +452,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               Container(
                 height: 1,
-                color: GameColors.borderDark,
-                margin: const EdgeInsets.symmetric(vertical: 8),
+                color: CutePixelColors.borderDark,
+                margin: const EdgeInsets.symmetric(vertical: 10),
               ),
-              _buildPixelSwitchTile(
+              _buildCuteSwitchTile(
+                emoji: '🗺️',
                 title: '自动生成图谱',
                 subtitle: '续写完成后自动更新知识图谱',
                 value: _autoUpdateGraphAfterWrite,
@@ -480,42 +465,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           // 保存按钮
-          GestureDetector(
-            onTap: _saveSettings,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: GameColors.buttonDecoration(color: GameColors.green),
-              child: const Center(
-                child: Text(
-                  '💾 保存配置',
-                  style: TextStyle(
-                    color: GameColors.textLight,
-                    fontFamily: 'monospace',
-                    fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
+          CutePixelButton(
+            label: '保存配置',
+            emoji: '💾',
+            color: CutePixelColors.mint,
+            fontSize: 13,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            onPressed: _saveSettings,
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           // 关于卡片
-          _buildPixelSectionCard(
-            title: 'ℹ️ 关于',
+          _buildCuteSectionCard(
+            emoji: 'ℹ️',
+            title: '关于',
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
-                    const Text('🐋', style: TextStyle(fontSize: 20)),
-                    const SizedBox(width: 10),
+                    const Text('🐋', style: TextStyle(fontSize: 28)),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,16 +497,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const Text(
                             'Always Remember Me',
                             style: TextStyle(
-                              color: GameColors.textLight,
+                              color: CutePixelColors.text,
                               fontWeight: FontWeight.bold,
                               fontFamily: 'monospace',
                               fontSize: 13,
                             ),
                           ),
-                          const Text(
+                          const SizedBox(height: 2),
+                          Text(
                             '版本 1.0.0 · 小说续写辅助工具',
                             style: TextStyle(
-                              color: GameColors.textMuted,
+                              color: CutePixelColors.textMuted,
                               fontSize: 11,
                             ),
                           ),
@@ -540,8 +515,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const Text('›', style: TextStyle(
-                      color: GameColors.textMuted,
-                      fontSize: 20,
+                      color: CutePixelColors.textMuted,
+                      fontSize: 22,
                     )),
                   ],
                 ),
@@ -553,34 +528,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildPixelSectionCard({
+  Widget _buildCuteSectionCard({
+    required String emoji,
     required String title,
     required List<Widget> children,
   }) {
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: GameColors.cardDecoration(),
+      padding: const EdgeInsets.all(16),
+      decoration: CutePixelColors.cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: GameColors.textLight,
-              fontFamily: 'monospace',
-              fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
-            ),
+          Row(
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: CutePixelColors.text,
+                  fontFamily: 'monospace',
+                  fontFamilyFallback: ['Noto Sans SC', 'sans-serif'],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           ...children,
         ],
       ),
     );
   }
 
-  Widget _buildPixelTextField({
+  Widget _buildCuteTextField({
     required TextEditingController controller,
     required String label,
     required String hint,
@@ -595,28 +577,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
           style: const TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.bold,
-            color: GameColors.textMuted,
+            color: CutePixelColors.textMuted,
             fontFamily: 'monospace',
           ),
         ),
         const SizedBox(height: 6),
         Container(
-          decoration: GameColors.inputDecoration(),
+          decoration: CutePixelColors.inputDecoration(),
           child: TextField(
             controller: controller,
             obscureText: isPassword,
             style: const TextStyle(
-              color: GameColors.textLight,
+              color: CutePixelColors.text,
               fontSize: 13,
               fontFamily: 'monospace',
             ),
-            cursorColor: GameColors.blueBright,
+            cursorColor: CutePixelColors.lavender,
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: const TextStyle(color: GameColors.textMuted, fontSize: 12),
+              hintStyle: TextStyle(color: CutePixelColors.textMuted, fontSize: 12),
               filled: true,
-              fillColor: GameColors.bg3,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              fillColor: CutePixelColors.bg3,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               border: InputBorder.none,
             ),
           ),
@@ -624,16 +606,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 4),
         Text(
           helperText,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 10,
-            color: GameColors.textMuted,
+            color: CutePixelColors.textMuted,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildPixelSwitchTile({
+  Widget _buildCuteSwitchTile({
+    required String emoji,
     required String title,
     required String subtitle,
     required bool value,
@@ -643,6 +626,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
+          Text(emoji, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -650,17 +635,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: GameColors.textLight,
+                    color: CutePixelColors.text,
                     fontFamily: 'monospace',
                   ),
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: GameColors.textMuted,
+                    color: CutePixelColors.textMuted,
                   ),
                 ),
               ],
@@ -668,29 +653,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           GestureDetector(
             onTap: () => onChanged(!value),
-            child: Container(
-              width: 44,
-              height: 26,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 50,
+              height: 28,
               decoration: BoxDecoration(
-                color: value ? GameColors.green : GameColors.bg3,
+                color: value ? CutePixelColors.mint : CutePixelColors.bg3,
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: value ? GameColors.green : GameColors.borderLight,
+                  color: value ? CutePixelColors.mint : CutePixelColors.borderDark,
                   width: 2,
                 ),
-                borderRadius: BorderRadius.circular(4),
-                boxShadow: [
-                  if (value) const BoxShadow(color: GameColors.green, offset: Offset(-1, -1)),
-                  const BoxShadow(color: GameColors.shadowColor, offset: Offset(1, 1)),
-                ],
               ),
-              child: Center(
-                child: Text(
-                  value ? 'ON' : 'OFF',
-                  style: const TextStyle(
-                    color: GameColors.textLight,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
+              child: AnimatedAlign(
+                duration: const Duration(milliseconds: 200),
+                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.all(3),
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(9),
+                    boxShadow: [
+                      BoxShadow(
+                        color: CutePixelColors.shadowColor,
+                        blurRadius: 4,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -701,7 +691,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildModelOptionPixel({
+  Widget _buildModelOptionCute({
     required String id,
     required String name,
     required String desc,
@@ -709,16 +699,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final isSelected = _selectedModel == id;
     return GestureDetector(
       onTap: () => setState(() => _selectedModel = id),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected
-              ? GameColors.blue.withOpacity(0.15)
-              : GameColors.bg3,
-          borderRadius: BorderRadius.circular(4),
+              ? CutePixelColors.lavender.withOpacity(0.15)
+              : CutePixelColors.bg3,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isSelected ? GameColors.blueBright : Colors.transparent,
+            color: isSelected ? CutePixelColors.lavender : Colors.transparent,
             width: 2,
           ),
         ),
@@ -726,9 +717,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Text(
               isSelected ? '✅' : '⬜',
-              style: const TextStyle(fontSize: 12),
+              style: const TextStyle(fontSize: 14),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -738,16 +729,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: isSelected ? GameColors.blueBright : GameColors.textLight,
+                      color: isSelected ? CutePixelColors.lavender : CutePixelColors.text,
                       fontFamily: 'monospace',
                     ),
                   ),
                   if (desc.isNotEmpty)
                     Text(
                       desc,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
-                        color: GameColors.textMuted,
+                        color: CutePixelColors.textMuted,
                       ),
                     ),
                 ],

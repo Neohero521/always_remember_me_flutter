@@ -17,6 +17,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late PageController _pageController;
   int _currentIndex = 0;
   bool _showControls = true;
+  int? _lastChapterId;  // 缓存退出时要保存的章节 ID
+  int? _lastFontSize;  // 缓存退出时要保存的字号
 
   @override
   void initState() {
@@ -34,25 +36,37 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (_currentIndex < 0) _currentIndex = 0;
 
     _pageController = PageController(initialPage: _currentIndex);
+
+    // 缓存退出时保存用的信息（避免 dispose 中访问 context）
+    final chapters = provider.chapters;
+    if (_currentIndex < chapters.length) {
+      _lastChapterId = chapters[_currentIndex].id;
+    } else if (chapters.isNotEmpty) {
+      _lastChapterId = chapters.first.id;
+    }
+    _lastFontSize = provider.readerFontSize;
   }
 
   @override
   void dispose() {
-    // 保存阅读进度和字号
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // 使用缓存的值保存阅读进度，完全不依赖 dispose 时的 context
+    if (_lastChapterId != null) {
       final provider = context.read<NovelProvider>();
-      final chapter = provider.chapters[_currentIndex];
       provider.updateReaderState(
-        chapterId: chapter.id,
-        fontSize: provider.readerFontSize,
+        chapterId: _lastChapterId,
+        fontSize: _lastFontSize,
       );
-    });
+    }
     _pageController.dispose();
     super.dispose();
   }
 
   void _onPageChanged(int idx, NovelProvider provider) {
     setState(() => _currentIndex = idx);
+    // 同步更新缓存
+    if (idx < provider.chapters.length) {
+      _lastChapterId = provider.chapters[idx].id;
+    }
     // 保存阅读进度
     final chapter = provider.chapters[idx];
     provider.updateReaderState(chapterId: chapter.id);

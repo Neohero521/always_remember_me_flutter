@@ -563,6 +563,7 @@ class NovelProvider extends ChangeNotifier {
           baseChapterContent: baseContent,
           targetWordCount: _writeWordCount,
         );
+        if (_stopFlag) { _writePreview = ''; return null; }
         _qualityResult = QualityResult.fromJson(quality);
         _qualityResultShow = true;
 
@@ -575,6 +576,7 @@ class NovelProvider extends ChangeNotifier {
             userPrompt: userPrompt,
             targetWordCount: _writeWordCount,
           );
+          if (_stopFlag) { _writePreview = ''; return null; }
           _qualityResult = null;
         }
       }
@@ -592,7 +594,12 @@ class NovelProvider extends ChangeNotifier {
 
       // 续写后自动生成图谱（如果开启）
       if (_autoUpdateGraphAfterWrite) {
-        updateGraphWithContinueContent(newChapter.id, continueContent);
+        // 用 await 确保图谱生成完成再返回，避免用户看到成功但图谱未生成
+        try {
+          await updateGraphWithContinueContent(newChapter.id, continueContent);
+        } catch (e) {
+          debugPrint('自动图谱生成失败（不影响续写结果）: $e');
+        }
       }
 
       _writeProgressText = '';
@@ -1057,7 +1064,7 @@ class NovelProvider extends ChangeNotifier {
         _graphComplianceResult = null;
         _graphCompliancePass = null;
       }
-      debugPrint('[NovelProvider] _loadBookData($bookId): 加载了 ${_chapters.length} 章');
+    debugPrint('[NovelProvider] _loadBookData($bookId): chapters loaded = ${data?.chapters?.length ?? 'null'}');
       notifyListeners();
       return true;
     } catch (e, st) {
@@ -1106,8 +1113,9 @@ class NovelProvider extends ChangeNotifier {
   /// 返回 true 表示切换成功，false 表示无数据（书未被加载）
   Future<bool> selectBook(String bookId) async {
     debugPrint('[NovelProvider] selectBook($bookId) 开始，_currentBookId=$_currentBookId');
-    if (_currentBookId == bookId) {
-      debugPrint('[NovelProvider] selectBook: 同一本书，跳过');
+    // 已选中此书且章节数据已加载，无需切换
+    if (_currentBookId == bookId && _chapters.isNotEmpty) {
+      debugPrint('[NovelProvider] selectBook: 同一本书且已加载，跳过');
       return true;
     }
     // 保存旧书
@@ -1136,17 +1144,14 @@ class NovelProvider extends ChangeNotifier {
     String? customRegex,
     int? wordCount,
   }) async {
-    // 如果当前有书，先保存
-    if (_currentBookId != null) {
+    // 1. 先保存旧书（如果有必要）
+    final oldBookId = _currentBookId;
+    if (oldBookId != null) {
       await _saveCurrentBookData();
     }
+
+    // 2. 生成新书ID并解析章节
     final bookId = DateTime.now().millisecondsSinceEpoch.toString();
-    final book = NovelBook.fromImport(
-      id: bookId,
-      rawFileName: rawFileName,
-      customTitle: customTitle,
-    );
-    // 复用现有解析逻辑
     if (customRegex != null && customRegex.isNotEmpty) {
       _chapters = ChapterService.splitByRegex(novelText, customRegex);
     } else if (wordCount != null) {
@@ -1154,15 +1159,36 @@ class NovelProvider extends ChangeNotifier {
     } else {
       _chapters = ChapterService.splitByRegex(novelText, '');
     }
-    // 更新元数据
-    final updatedBook = book.copyWithMeta(chapterCount: _chapters.length);
-    _bookshelf.add(updatedBook);
+    _lastParsedText = novelText;
+
+    // 3. 创建书架元数据并立即持久化（章节数 + Hive数据）
+    final book = NovelBook.fromImport(
+      id: bookId,
+      rawFileName: rawFileName,
+      customTitle: customTitle,
+    ).copyWithMeta(chapterCount: _chapters.length);
+    _bookshelf.add(book);
     await _storage.saveBookshelf(_bookshelf);
-    // 保存内容数据
+
+    // 4. 直接将当前书籍切换到新书（不经过 selectBook，避免各种早期返回问题）
+    _currentBookId = bookId;
+    _isLoadingBook = false;
+    _mergedGraph = null;
+    _batchMergedGraphs = [];
+    _continueChain = [];
+    _continueIdCounter = 1;
+    _chapterGraphMap = {};
+    _selectedBaseChapterId = '';
+    _writePreview = '';
+    _precheckResult = null;
+    _qualityResult = null;
+    _qualityResultShow = false;
+
+    // 5. 同步保存新书数据到正确的 Hive key
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_book_id', bookId);
     await _saveCurrentBookData();
-    // 切换到新书（避免 selectBook 早期返回，先清空 _currentBookId）
-    _currentBookId = null;
-    await selectBook(bookId);
+    notifyListeners();
   }
 
   /// 删除书籍

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../providers/novel_provider.dart';
+import '../../theme/game_console_theme.dart';
 
 class ImportScreen extends StatefulWidget {
   const ImportScreen({super.key});
@@ -193,7 +194,12 @@ class _ImportScreenState extends State<ImportScreen> {
                           '已解析 ${provider.chapters.length} 个章节',
                           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700),
                         ),
-                        ElevatedButton(
+                        CutePixelButton(
+                          label: '保存到书架',
+                          emoji: '💾',
+                          color: CutePixelColors.mint,
+                          fontSize: 12,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                           onPressed: () async {
                             final fileName = _fileName ?? '未命名';
                             final title = _titleController.text.trim().isNotEmpty
@@ -212,7 +218,6 @@ class _ImportScreenState extends State<ImportScreen> {
                               Navigator.pop(context);
                             }
                           },
-                          child: const Text('保存到书架'),
                         ),
                       ],
                     ),
