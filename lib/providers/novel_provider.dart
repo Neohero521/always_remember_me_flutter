@@ -1112,9 +1112,12 @@ class NovelProvider extends ChangeNotifier {
   }
 
   /// 保存当前书籍数据到 Hive
-  Future<void> _saveCurrentBookData() async {
-    if (_currentBookId == null) return;
-    await _storage.saveNovelDataForBook(_currentBookId!, NovelPersistData(
+  Future<void> _saveCurrentBookData({String? prevBookId}) async {
+    // 当从 selectBook 调用时，prevBookId 是切换前的书籍ID，数据还在内存里
+    // _currentBookId 已经被更新为新书ID，不能再用它
+    final bookIdToSave = prevBookId ?? _currentBookId;
+    if (bookIdToSave == null) return;
+    await _storage.saveNovelDataForBook(bookIdToSave, NovelPersistData(
       chapters: _chapters,
       chapterGraphMap: _chapterGraphMap,
       continueChain: _continueChain,
@@ -1132,7 +1135,7 @@ class NovelProvider extends ChangeNotifier {
       graphCompliance: _graphComplianceResult != null ? {'result': _graphComplianceResult, 'pass': _graphCompliancePass} : null,
     ));
     // 更新书架元数据
-    final idx = _bookshelf.indexWhere((b) => b.id == _currentBookId);
+    final idx = _bookshelf.indexWhere((b) => b.id == bookIdToSave);
     if (idx >= 0) {
       final ch = _chapters;
       _bookshelf[idx] = _bookshelf[idx].copyWithMeta(
@@ -1147,16 +1150,18 @@ class NovelProvider extends ChangeNotifier {
 
   /// 切换到指定书籍
   /// 返回 true 表示切换成功，false 表示无数据（书未被加载）
+  /// 切换到指定书籍（从书架点击调用）
   Future<bool> selectBook(String bookId) async {
-    debugPrint('[NovelProvider] selectBook($bookId) 开始，_currentBookId=$_currentBookId');
+    final prevBookId = _currentBookId; // 记录切换前的书籍ID，用于保存
+    debugPrint('[NovelProvider] selectBook($bookId) 开始，prevBookId=$prevBookId');
     // 已选中此书且章节数据已加载，无需切换
     if (_currentBookId == bookId && _chapters.isNotEmpty) {
       debugPrint('[NovelProvider] selectBook: 同一本书且已加载，跳过');
       return true;
     }
-    // 保存旧书
-    if (_currentBookId != null) {
-      await _saveCurrentBookData();
+    // 保存旧书（使用切换前的书籍ID）
+    if (prevBookId != null) {
+      await _saveCurrentBookData(prevBookId: prevBookId);
     }
     _currentBookId = bookId;
     _isLoadingBook = true;
@@ -1181,44 +1186,37 @@ class NovelProvider extends ChangeNotifier {
     int? wordCount,
   }) async {
     try {
-      // 1. 保存旧书数据
+      // 1. 保存旧书数据（同步等待完成）
       final oldBookId = _currentBookId;
       if (oldBookId != null) {
         await _saveCurrentBookData();
       }
 
-      // 2. 复用已有的解析结果（如果文本相同且已解析），否则重新解析
-      List<Chapter> chaptersToSave;
+      // 2. 解析章节（复用已有结果，或重新解析）
+      List<Chapter> parsed;
       if (_lastParsedText == novelText && _chapters.isNotEmpty) {
-        debugPrint('[importBook] 复用已有解析结果: ${_chapters.length} 个章节');
-        chaptersToSave = _chapters;
+        parsed = _chapters; // 文本没变，直接复用
+      } else if (customRegex != null && customRegex.isNotEmpty) {
+        parsed = ChapterService.splitByRegex(novelText, customRegex);
+      } else if (wordCount != null) {
+        parsed = ChapterService.splitByWordCount(novelText, wordCount);
       } else {
-        debugPrint('[importBook] 重新解析章节（文本变化或未解析）');
-        if (customRegex != null && customRegex.isNotEmpty) {
-          chaptersToSave = ChapterService.splitByRegex(novelText, customRegex);
-        } else if (wordCount != null) {
-          chaptersToSave = ChapterService.splitByWordCount(novelText, wordCount);
-        } else {
-          // 使用自动匹配时保存的正则，而非空字符串兜底
-          final regexToUse = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
-          chaptersToSave = ChapterService.splitByRegex(novelText, regexToUse);
-        }
+        final regex = _currentAutoRegex.isNotEmpty ? _currentAutoRegex : '';
+        parsed = ChapterService.splitByRegex(novelText, regex);
       }
-      debugPrint('[importBook] 最终章节数: ${chaptersToSave.length} 个');
-      _chapters = chaptersToSave;
-      _lastParsedText = novelText;
 
-      // 3. 创建书架元数据并加入书架
+      // 3. 生成新书ID，创建书架元数据（同步写入，不等异步）
       final bookId = DateTime.now().millisecondsSinceEpoch.toString();
       final book = NovelBook.fromImport(
         id: bookId,
         rawFileName: rawFileName,
         customTitle: customTitle,
-      ).copyWithMeta(chapterCount: _chapters.length);
-      _bookshelf.add(book);
-      await _storage.saveBookshelf(_bookshelf);
+      ).copyWithMeta(chapterCount: parsed.length);
 
-      // 4. 先把新书数据存到 Hive（selectBook 会从这里加载）
+      // 4. 立即更新内存状态
+      _chapters = parsed;
+      _lastParsedText = novelText;
+      _bookshelf.add(book);
       _currentBookId = bookId;
       _continueChain = [];
       _continueIdCounter = 1;
@@ -1230,20 +1228,29 @@ class NovelProvider extends ChangeNotifier {
       _precheckResult = null;
       _qualityResult = null;
       _qualityResultShow = false;
+
+      // 5. 先把新书数据同步写入 Hive（bookId的key）
       await _saveCurrentBookData();
 
-      // 5. 通过 selectBook 完整切换（包含加载、元数据同步、notify）
-      await selectBook(bookId);
+      // 6. 再保存书架元数据
+      await _storage.saveBookshelf(_bookshelf);
 
-      // 6. 保存最新章节数据到 Hive
-      await _saveCurrentBookData();
-
-      // 8. 保存 last_book_id
+      // 7. 保存 last_book_id
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_book_id', bookId);
-      notifyListeners();
 
-      debugPrint('[importBook] 导入成功：bookId=$bookId, 章节数=${_chapters.length}');
+      // 8. 验证保存成功
+      final verify = await _storage.loadNovelDataForBook(bookId);
+      if (verify == null || verify.chapters == null || verify.chapters!.isEmpty) {
+        debugPrint('[importBook] 保存验证失败，重新保存一次');
+        await _saveCurrentBookData();
+        final verify2 = await _storage.loadNovelDataForBook(bookId);
+        debugPrint('[importBook] 重新保存后验证: ${verify2?.chapters?.length ?? 'null'} 个章节');
+      } else {
+        debugPrint('[importBook] 验证通过: ${verify.chapters!.length} 个章节');
+      }
+
+      notifyListeners();
     } catch (e, st) {
       debugPrint('[importBook] 导入失败: $e $st');
       rethrow;

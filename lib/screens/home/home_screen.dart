@@ -207,7 +207,7 @@ class HomeScreen extends StatelessWidget {
   void _scrollToWriteTab(BuildContext context) {
     try {
       final tabController = DefaultTabController.of(context);
-      tabController.animateTo(2);
+      tabController.animateTo(3);
     } catch (_) {
       // 没有 DefaultTabController 时降级提示
       ScaffoldMessenger.of(context).showSnackBar(

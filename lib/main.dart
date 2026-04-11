@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/novel_provider.dart';
 import 'screens/bookshelf/bookshelf_screen.dart';
+import 'screens/home/home_screen.dart';
+import 'screens/chapters/chapters_screen.dart';
+import 'screens/write/write_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/reader/reader_screen.dart';
 import 'screens/graph/graph_viewer_screen.dart';
-import 'screens/write/write_studio_screen.dart';
 import 'services/storage_service.dart';
 import 'theme/game_console_theme.dart';
 
@@ -109,7 +111,7 @@ class _AppWithLoadingGuardState extends State<_AppWithLoadingGuard>
     }
 
     return DefaultTabController(
-      length: 3,
+      length: 5,
       child: MaterialApp(
         title: '小说续写器',
         debugShowCheckedModeBanner: false,
@@ -225,7 +227,9 @@ class _MainShellState extends State<MainShell> {
 
   final _screens = const [
     BookshelfScreen(),
-    WriteStudioScreen(),
+    HomeScreen(),
+    ChaptersScreen(),
+    WriteScreen(),
     SettingsScreen(),
   ];
 
@@ -244,7 +248,7 @@ class _MainShellState extends State<MainShell> {
     if (_tabController == null) return;
     if (_tabController!.indexIsChanging) return;
     final idx = _tabController!.index;
-    if (idx != _currentIndex && idx >= 0 && idx < 3) {
+    if (idx != _currentIndex && idx >= 0 && idx < 5) {
       setState(() => _currentIndex = idx);
     }
   }
@@ -288,17 +292,31 @@ class _MainShellState extends State<MainShell> {
                   activeColor: CutePixelColors.pink,
                 ),
                 _CuteNavItem(
-                  emoji: '✍️',
-                  label: '续写',
+                  emoji: '🏠',
+                  label: '首页',
                   selected: _currentIndex == 1,
                   onTap: () => _onTap(1),
+                  activeColor: CutePixelColors.pink,
+                ),
+                _CuteNavItem(
+                  emoji: '📖',
+                  label: '章节',
+                  selected: _currentIndex == 2,
+                  onTap: () => _onTap(2),
+                  activeColor: CutePixelColors.lavender,
+                ),
+                _CuteNavItem(
+                  emoji: '✍️',
+                  label: '续写',
+                  selected: _currentIndex == 3,
+                  onTap: () => _onTap(3),
                   activeColor: CutePixelColors.lavender,
                 ),
                 _CuteNavItem(
                   emoji: '⚙️',
                   label: '设置',
-                  selected: _currentIndex == 2,
-                  onTap: () => _onTap(2),
+                  selected: _currentIndex == 4,
+                  onTap: () => _onTap(4),
                   activeColor: CutePixelColors.mint,
                 ),
               ],
