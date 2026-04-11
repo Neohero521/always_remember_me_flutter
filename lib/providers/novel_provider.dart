@@ -1363,7 +1363,9 @@ class NovelProvider extends ChangeNotifier {
       _qualityResultShow = false;
 
       // 5. 先把新书数据同步写入 Hive（bookId的key）
+      debugPrint('[importBook] 保存前：bookId=$bookId, _chapters.length=${_chapters.length}');
       await _saveCurrentBookData();
+      debugPrint('[importBook] _saveCurrentBookData 已完成');
 
       // 6. 再保存书架元数据
       await _storage.saveBookshelf(_bookshelf);
