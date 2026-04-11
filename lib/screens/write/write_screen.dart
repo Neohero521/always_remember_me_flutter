@@ -17,6 +17,16 @@ class _WriteScreenState extends State<WriteScreen> {
   bool _isEditing = false;
   late TextEditingController _contentController;
 
+  // F3: 批量续写状态
+  bool _isBatchWriting = false;
+  String _batchWriteState = '';
+  int _batchTotal = 0;
+  int _batchCurrent = 0;
+  int _batchSuccess = 0;
+  int _batchFailed = 0;
+  bool _stopBatchWrite = false;
+  final List<String> _batchFailedTitles = [];
+
   @override
   void initState() {
     super.initState();
@@ -354,6 +364,25 @@ class _WriteScreenState extends State<WriteScreen> {
             ],
           ),
 
+          // F3: 批量续写按钮
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: provider.isGeneratingWrite || provider.chapters.isEmpty
+                      ? null
+                      : () => _showBatchContinueDialog(context, provider),
+                  icon: const Icon(Icons.fast_forward, size: 18),
+                  label: const Text('一键批量续写'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
           // 生成进度
           if (provider.writeProgressText.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -437,6 +466,193 @@ class _WriteScreenState extends State<WriteScreen> {
         const SnackBar(content: Text('魔改章节图谱更新完成！')),
       );
     }
+  }
+
+  // ─── F3: 批量续写 ────────────────────────────────────────────────
+
+  /// 显示批量续写对话框（选择起始章节）
+  void _showBatchContinueDialog(BuildContext context, NovelProvider provider) {
+    final originalChapters = provider.chapters.toList();
+    if (originalChapters.isEmpty) return;
+
+    int? selectedChapterId;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('一键批量续写'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('选择起始章节（将从该章节开始向后续写所有章节）：'),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.maxFinite,
+              height: 200,
+              child: ListView.builder(
+                itemCount: originalChapters.length,
+                itemBuilder: (_, idx) {
+                  final chapter = originalChapters[idx];
+                  return ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Colors.orange.shade100,
+                      child: Text('${idx + 1}', style: const TextStyle(fontSize: 11)),
+                    ),
+                    title: Text(chapter.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                    selected: selectedChapterId == chapter.id,
+                    onTap: () => setState(() => selectedChapterId = chapter.id),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          ElevatedButton(
+            onPressed: selectedChapterId == null
+                ? null
+                : () {
+                    Navigator.pop(ctx);
+                    _startBatchContinue(context, provider, selectedChapterId!);
+                  },
+            child: const Text('开始批量续写'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 启动批量续写
+  void _startBatchContinue(BuildContext context, NovelProvider provider, int startChapterId) {
+    final chapters = provider.chapters.toList();
+    final startIdx = chapters.indexWhere((c) => c.id == startChapterId);
+    if (startIdx < 0) return;
+
+    // 只续写原始章节（不含续写链条中的章节）
+    final originalChapters = chapters;
+    final targetChapters = originalChapters.sublist(startIdx);
+
+    setState(() {
+      _isBatchWriting = true;
+      _batchWriteState = '准备开始...';
+      _batchTotal = targetChapters.length;
+      _batchCurrent = 0;
+      _batchSuccess = 0;
+      _batchFailed = 0;
+      _stopBatchWrite = false;
+      _batchFailedTitles.clear();
+    });
+
+    // 显示进度对话框
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _BatchProgressDialog(
+        onStop: () {
+          setState(() => _stopBatchWrite = true);
+        },
+        getState: () => _batchWriteState,
+        getCurrent: () => _batchCurrent,
+        getTotal: () => _batchTotal,
+        getSuccess: () => _batchSuccess,
+        getFailed: () => _batchFailed,
+      ),
+    ).then((_) {
+      setState(() => _isBatchWriting = false);
+    });
+
+    // 后台执行批量续写
+    _runBatchContinueWrite(provider, targetChapters);
+  }
+
+  /// 执行批量续写循环
+  Future<void> _runBatchContinueWrite(NovelProvider provider, List<Chapter> targetChapters) async {
+    for (int i = 0; i < targetChapters.length; i++) {
+      if (_stopBatchWrite) {
+        setState(() => _batchWriteState = '用户停止批量续写');
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
+
+      final chapter = targetChapters[i];
+      setState(() {
+        _batchCurrent = i + 1;
+        _batchWriteState = '续写第 ${i + 1}/${_batchTotal} 章：${chapter.title}';
+      });
+
+      // 设置基准章节
+      provider.selectBaseChapter(chapter.id.toString());
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 最多重试3次
+      String? result;
+      for (int retry = 0; retry < 3; retry++) {
+        setState(() => _batchWriteState = '续写第 ${i + 1}/${_batchTotal} 章：${chapter.title}（第${retry + 1}次尝试）');
+        result = await provider.generateWrite();
+        if (result != null && result.isNotEmpty && result.length > 50) break;
+        if (_stopBatchWrite) break;
+        await Future.delayed(const Duration(milliseconds: 1000));
+      }
+
+      if (_stopBatchWrite) {
+        setState(() => _batchWriteState = '用户停止批量续写');
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
+
+      if (result != null && result.length > 50) {
+        setState(() {
+          _batchSuccess++;
+          _batchWriteState = '第 ${i + 1}/${_batchTotal} 章续写完成（${result.length}字），正在更新图谱...';
+        });
+        // 图谱已在 generateWrite 内部自动更新（autoUpdateGraphAfterWrite）
+      } else {
+        setState(() {
+          _batchFailed++;
+          _batchFailedTitles.add(chapter.title);
+          _batchWriteState = '第 ${i + 1}/${_batchTotal} 章续写失败（防空回）';
+        });
+      }
+
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    setState(() => _batchWriteState = '批量续写完成！');
+    await Future.delayed(const Duration(seconds: 1));
+    if (mounted) {
+      Navigator.of(context).pop();
+      _showBatchSummary(context);
+    }
+  }
+
+  /// 显示批量续写总结
+  void _showBatchSummary(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量续写完成'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('成功：$_batchSuccess 章'),
+            Text('失败：$_batchFailed 章'),
+            if (_batchFailedTitles.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('失败章节：', style: TextStyle(fontWeight: FontWeight.bold)),
+              ..._batchFailedTitles.map((t) => Text('• $t', style: const TextStyle(fontSize: 13))),
+            ],
+          ],
+        ),
+        actions: [
+          ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('确定')),
+        ],
+      ),
+    );
   }
 
   /// 基于链条章节继续续写
@@ -684,6 +900,90 @@ class _ChainChapterCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// F3: 批量续写进度对话框
+class _BatchProgressDialog extends StatefulWidget {
+  final VoidCallback onStop;
+  final String Function() getState;
+  final int Function() getCurrent;
+  final int Function() getTotal;
+  final int Function() getSuccess;
+  final int Function() getFailed;
+
+  const _BatchProgressDialog({
+    required this.onStop,
+    required this.getState,
+    required this.getCurrent,
+    required this.getTotal,
+    required this.getSuccess,
+    required this.getFailed,
+  });
+
+  @override
+  State<_BatchProgressDialog> createState() => _BatchProgressDialogState();
+}
+
+class _BatchProgressDialogState extends State<_BatchProgressDialog> {
+  @override
+  void initState() {
+    super.initState();
+    _startPolling();
+  }
+
+  void _startPolling() async {
+    while (mounted && Navigator.of(context).canPop()) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = widget.getCurrent();
+    final total = widget.getTotal();
+    final progress = total > 0 ? current / total : 0.0;
+
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.fast_forward, color: Colors.orange),
+          SizedBox(width: 8),
+          Text('批量续写中'),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LinearProgressIndicator(value: progress),
+            const SizedBox(height: 12),
+            Text('第 $current / $total 章', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(widget.getState(), style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text('✅ 成功: ${widget.getSuccess()}', style: const TextStyle(fontSize: 13, color: Colors.green)),
+                const SizedBox(width: 16),
+                Text('❌ 失败: ${widget.getFailed()}', style: const TextStyle(fontSize: 13, color: Colors.red)),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            widget.onStop();
+          },
+          child: const Text('停止', style: TextStyle(color: Colors.red)),
+        ),
+      ],
     );
   }
 }
