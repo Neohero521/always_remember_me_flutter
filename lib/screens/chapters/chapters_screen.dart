@@ -76,12 +76,15 @@ class _ChaptersScreenState extends State<ChaptersScreen> {
                     context,
                     MaterialPageRoute(builder: (_) => const ReaderScreen()),
                   );
+                } else if (v == 'validate_compliance') {
+                  _validateCompliance(context, provider);
                 }
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(value: 'read', child: Text('阅读小说')),
                 const PopupMenuItem(value: 'generate_all', child: Text('批量生成全部图谱')),
                 const PopupMenuItem(value: 'check_graph_status', child: Text('图谱状态检验')),
+                const PopupMenuItem(value: 'validate_compliance', child: Text('图谱合规性校验')),
               ],
             ),
           ],
@@ -310,6 +313,150 @@ class _ChaptersScreenState extends State<ChaptersScreen> {
         ),
       );
     }
+  }
+
+  // F5: 图谱合规性校验
+  void _validateCompliance(BuildContext context, NovelProvider provider) async {
+    if (provider.chapters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先导入小说文件并解析章节')),
+      );
+      return;
+    }
+
+    // 显示进度
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        title: Row(
+          children: [
+            SizedBox(
+              width: 20, height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('图谱合规性校验'),
+          ],
+        ),
+        content: Text('正在校验所有章节图谱...'),
+      ),
+    );
+
+    final results = await provider.validateAllChapterGraphsCompliance();
+
+    if (!context.mounted) return;
+    Navigator.of(context).pop(); // 关闭进度对话框
+
+    final passCount = results.where((r) => r['pass'] == true).length;
+    final failCount = results.where((r) => r['pass'] == false).length;
+    final failedResults = results.where((r) => r['pass'] == false).toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              failCount == 0 ? Icons.check_circle : Icons.warning,
+              color: failCount == 0 ? Colors.green : Colors.orange,
+            ),
+            const SizedBox(width: 8),
+            const Text('图谱合规性校验结果'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 汇总
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: failCount == 0 ? Colors.green.shade50 : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('通过：$passCount 章', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text('不合格：$failCount 章', style: TextStyle(color: failCount == 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      children: [
+                        Text('${(passCount / (results.length == 0 ? 1 : results.length) * 100).toStringAsFixed(0)}%',
+                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: failCount == 0 ? Colors.green : Colors.orange)),
+                        const Text('通过率', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 不合格列表
+              if (failedResults.isNotEmpty) ...[
+                const Text('不合格章节：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: failedResults.length,
+                    itemBuilder: (_, idx) {
+                      final r = failedResults[idx];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                        title: Text(r['chapterTitle'] as String, style: const TextStyle(fontSize: 13)),
+                        subtitle: Text(
+                          r['reason'] as String,
+                          style: const TextStyle(fontSize: 11, color: Colors.red),
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          // 跳转到该章节详情
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ReaderScreen(initialChapterId: r['chapterId'] as int),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ] else
+                const Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green, size: 48),
+                        SizedBox(height: 12),
+                        Text('所有章节图谱均合规！', style: TextStyle(color: Colors.green, fontSize: 16)),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _confirmGenerateAll(BuildContext context, NovelProvider provider) {

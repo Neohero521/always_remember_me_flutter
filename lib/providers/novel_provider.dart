@@ -854,6 +854,68 @@ class NovelProvider extends ChangeNotifier {
     };
   }
 
+  // F5: 遍历所有章节图谱进行合规性校验
+  /// 返回每个章节的合规性结果（含原因）
+  /// 规则：8个必填字段完整 + 字数≥1200 + 自洽得分≥阈值
+  Future<List<Map<String, dynamic>>> validateAllChapterGraphsCompliance({int minWordCount = 1200, int minScore = 60}) async {
+    final results = <Map<String, dynamic>>[];
+    final requiredFields = [
+      '人物信息', '世界观设定', '核心剧情线', '文风特点',
+      '实体关系网络', '变更与依赖信息', '逆向分析洞察',
+    ];
+
+    for (final chapter in _chapters) {
+      final graph = _chapterGraphMap[chapter.id];
+      if (graph == null) {
+        results.add({
+          'chapterId': chapter.id,
+          'chapterTitle': chapter.title,
+          'pass': false,
+          'reason': '该章节尚未生成图谱',
+        });
+        continue;
+      }
+
+      // 检查必填字段
+      final missingFields = requiredFields.where((f) => !graph.containsKey(f)).toList();
+
+      // 检查字数
+      final chapterWordCount = chapter.content.length;
+
+      // 检查自洽得分
+      final score = (graph['逆向分析洞察']?['全文本逻辑自洽性得分'] ??
+                     graph['逆向分析洞察']?['自洽得分'] ?? 0).toInt();
+
+      final reasons = <String>[];
+      if (missingFields.isNotEmpty) {
+        reasons.add('缺少字段：${missingFields.join("、")}');
+      }
+      if (chapterWordCount < minWordCount) {
+        reasons.add('内容字数不足（$chapterWordCount < $minWordCount）');
+      }
+      if (score > 0 && score < minScore) {
+        reasons.add('自洽得分过低（$score < $minScore）');
+      }
+
+      if (reasons.isEmpty) {
+        results.add({
+          'chapterId': chapter.id,
+          'chapterTitle': chapter.title,
+          'pass': true,
+          'reason': '合规（字数：$chapterWordCount，自洽得分：$score）',
+        });
+      } else {
+        results.add({
+          'chapterId': chapter.id,
+          'chapterTitle': chapter.title,
+          'pass': false,
+          'reason': reasons.join('；'),
+        });
+      }
+    }
+    return results;
+  }
+
   // === 魔改章节图谱更新 ===
   /// 用户修改章节内容后，重新生成该章节的图谱
   Future<Map<String, dynamic>?> updateModifiedChapterGraph(
