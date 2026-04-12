@@ -82,7 +82,7 @@ class _NovelListScreenState extends ConsumerState<NovelListScreen>
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.push(
               context,
-              slideRoute(const SettingsScreen()),
+              slideRoute(const ApiConfigScreen()),
             ),
             tooltip: '设置',
           ),
