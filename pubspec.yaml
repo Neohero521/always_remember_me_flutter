@@ -1,5 +1,5 @@
 name: always_remember_me
-description: 小说续写器 - 基于 Always_remember_me 扩展移植的 Flutter App
+description: 小说续写器 - AI 辅助写作 Flutter App (v5.0)
 publish_to: 'none'
 version: 5.0.0
 
@@ -10,17 +10,17 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # State Management
-  provider: ^6.1.2
+  # State Management - Riverpod
   flutter_riverpod: ^2.6.1
   riverpod_annotation: ^2.4.0
 
   # Routing
   go_router: ^14.8.1
 
-  # Database (keep Hive for Phase 1, Drift in Phase 2)
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
+  # Database - Drift (SQLite ORM)
+  drift: 2.22.1
+  drift_flutter: 0.2.4
+  sqlite3_flutter_libs: 0.5.28
 
   # Network
   dio: ^5.8.0
@@ -33,9 +33,15 @@ dependencies:
   # File picking
   file_picker: ^6.1.1
 
-  # Serialization
+  # Serialization - Freezed
   freezed_annotation: ^2.4.4
   json_annotation: ^4.9.0
+
+  # Dependency Injection
+  get_it: ^8.0.3
+
+  # Functional Programming
+  fpdart: ^1.1.0
 
   # Utilities
   uuid: ^4.5.1
@@ -44,13 +50,17 @@ dependencies:
 
   # UI
   cached_network_image: ^3.4.1
+  graphview: ^1.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  
+  # Code Generation
   build_runner: ^2.4.0
-  freezed: ^2.4.0
+  drift_dev: ^2.22.1
+  freezed: ^2.5.7
   json_serializable: ^6.7.0
   riverpod_generator: ^2.4.0
   mockito: ^5.4.0
