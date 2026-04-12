@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
-const _storage = FlutterSecureStorage();
-final _dio = Dio();
+/// 浏览器User-Agent，用于绕过Cloudflare等WAF的检测
+const _browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 class ApiConfigScreen extends StatefulWidget {
   const ApiConfigScreen({super.key});
@@ -14,14 +14,16 @@ class ApiConfigScreen extends StatefulWidget {
 }
 
 class _ApiConfigScreenState extends State<ApiConfigScreen> {
-  final _urlController = TextEditingController();
-  final _keyController = TextEditingController();
+  final _apiUrlController = TextEditingController();
+  final _apiKeyController = TextEditingController();
   final _modelController = TextEditingController();
-  
-  bool _loading = false;
-  bool _testing = false;
-  String? _result;
-  bool? _success;
+
+  bool _isLoading = true;
+  bool _isTesting = false;
+  String? _testResult;
+  bool? _testSuccess;
+  List<String> _availableModels = [];
+  bool _isLoadingModels = false;
 
   @override
   void initState() {
@@ -30,113 +32,195 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
-    setState(() => _loading = true);
-    _urlController.text = await _storage.read(key: 'api_url') ?? '';
-    _keyController.text = await _storage.read(key: 'api_key') ?? '';
-    _modelController.text = await _storage.read(key: 'api_model') ?? 'gpt-3.5-turbo';
-    setState(() => _loading = false);
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _apiUrlController.text = prefs.getString('api_url') ?? 'https://api.sillytaverns.com/v1';
+      _apiKeyController.text = prefs.getString('api_key') ?? '';
+      _modelController.text = prefs.getString('api_model') ?? 'gemini-2.5-flash';
+      _isLoading = false;
+    });
   }
 
   Future<void> _saveConfig() async {
-    await _storage.write(key: 'api_url', value: _urlController.text);
-    await _storage.write(key: 'api_key', value: _keyController.text);
-    await _storage.write(key: 'api_model', value: _modelController.text);
-    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('api_url', _apiUrlController.text.trim());
+    await prefs.setString('api_key', _apiKeyController.text.trim());
+    await prefs.setString('api_model', _modelController.text.trim());
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已保存'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('✅ 已保存'), backgroundColor: Colors.green),
       );
     }
   }
 
-  Future<void> _testApi() async {
-    final url = _urlController.text.trim();
-    final key = _keyController.text.trim();
+  Future<void> _testConnection() async {
+    final apiUrl = _apiUrlController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
     final model = _modelController.text.trim();
 
-    if (url.isEmpty) {
-      setState(() { _result = '请填写API地址'; _success = false; });
+    if (apiUrl.isEmpty) {
+      setState(() { _testResult = '请填写API地址'; _testSuccess = false; });
       return;
     }
-    if (key.isEmpty) {
-      setState(() { _result = '请填写API Key'; _success = false; });
+    if (apiKey.isEmpty) {
+      setState(() { _testResult = '请填写API Key'; _testSuccess = false; });
       return;
     }
 
-    setState(() { _testing = true; _result = null; });
+    setState(() {
+      _isTesting = true;
+      _testResult = null;
+      _testSuccess = null;
+    });
 
     try {
-      // 构建完整URL
-      String endpoint = url.replaceAll(RegExp(r'/$'), '');
+      // 构建endpoint
+      String endpoint = apiUrl.replaceAll(RegExp(r'/$'), '');
       if (!endpoint.endsWith('/v1/chat/completions')) {
         endpoint = '$endpoint/v1/chat/completions';
       }
 
-      final response = await _dio.post(
-        endpoint,
-        data: {
+      final uri = Uri.parse(endpoint);
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
+          'User-Agent': _browserUserAgent,
+        },
+        body: jsonEncode({
           'model': model.isEmpty ? 'gpt-3.5-turbo' : model,
           'messages': [{'role': 'user', 'content': 'say hi'}],
           'max_tokens': 20,
-        },
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $key',
-          },
-          sendTimeout: const Duration(seconds: 30),
-          receiveTimeout: const Duration(seconds: 30),
-        ),
-      );
+        }),
+      ).timeout(const Duration(seconds: 30));
 
       setState(() {
-        _testing = false;
+        _isTesting = false;
         if (response.statusCode == 200) {
-          _success = true;
-          _result = '连接成功!';
+          _testSuccess = true;
+          _testResult = '✅ 连接成功!';
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          _testSuccess = false;
+          _testResult = '❌ 认证失败: API Key无效';
+        } else if (response.statusCode == 404) {
+          _testSuccess = false;
+          _testResult = '❌ 端点不存在(404)';
         } else {
-          _success = false;
-          _result = 'HTTP ${response.statusCode}';
+          _testSuccess = false;
+          _testResult = '❌ HTTP ${response.statusCode}';
         }
-      });
-    } on DioException catch (e) {
-      setState(() {
-        _testing = false;
-        _success = false;
-        _result = _getDioError(e);
       });
     } catch (e) {
       setState(() {
-        _testing = false;
-        _success = false;
-        _result = e.toString();
+        _isTesting = false;
+        _testSuccess = false;
+        _testResult = '❌ $e';
       });
     }
   }
 
-  String _getDioError(DioException e) {
-    final status = e.response?.statusCode;
-    if (status == 401 || status == 403) return '认证失败 - Key无效';
-    if (status == 404) return '端点不存在 (404)';
-    if (status == 429) return '请求太频繁';
-    if (status != null && status >= 500) return '服务器错误 ($status)';
-    
-    switch (e.type) {
-      case DioExceptionType.connectionTimeout:
-        return '连接超时';
-      case DioExceptionType.connectionError:
-        return '无法连接服务器';
-      case DioExceptionType.receiveTimeout:
-        return '响应超时';
-      default:
-        return e.message ?? '未知错误';
+  Future<void> _fetchModels() async {
+    final apiUrl = _apiUrlController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
+
+    if (apiUrl.isEmpty || apiKey.isEmpty) {
+      setState(() => _testResult = '请先填写API地址和Key');
+      return;
     }
+
+    setState(() {
+      _isLoadingModels = true;
+      _availableModels = [];
+    });
+
+    try {
+      // 猜测模型端点
+      String base = apiUrl.replaceAll(RegExp(r'/$'), '');
+      base = base.replaceAll(RegExp(r'/v\d+$'), '');
+
+      final endpoints = [
+        '$base/v1/models',
+        '$base/models',
+        '$base/api/v1/models',
+      ];
+
+      for (final endpoint in endpoints) {
+        try {
+          final uri = Uri.parse(endpoint);
+          var response = await http.get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+              'User-Agent': _browserUserAgent,
+            },
+          ).timeout(const Duration(seconds: 15));
+
+          // 如果Bearer失败，尝试X-API-Key
+          if (response.statusCode == 401 || response.statusCode == 403) {
+            response = await http.get(
+              uri,
+              headers: {
+                'X-API-Key': apiKey,
+                'User-Agent': _browserUserAgent,
+              },
+            ).timeout(const Duration(seconds: 15));
+          }
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            final models = _parseModels(data);
+            if (models.isNotEmpty) {
+              setState(() {
+                _availableModels = models;
+                _isLoadingModels = false;
+                if (_modelController.text.isEmpty && models.isNotEmpty) {
+                  _modelController.text = models.first;
+                }
+              });
+              return;
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+
+      setState(() {
+        _testResult = '无法获取模型列表';
+        _isLoadingModels = false;
+      });
+    } catch (e) {
+      setState(() {
+        _testResult = '获取模型失败: $e';
+        _isLoadingModels = false;
+      });
+    }
+  }
+
+  List<String> _parseModels(Map<String, dynamic> data) {
+    // OpenAI格式
+    if (data.containsKey('data') && data['data'] is List) {
+      return (data['data'] as List)
+          .map((m) => m['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+    }
+    // MiniMax格式
+    if (data.containsKey('models') && data['models'] is List) {
+      return (data['models'] as List)
+          .map((m) => m['model_id']?.toString() ?? m['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+    }
+    return [];
   }
 
   @override
   void dispose() {
-    _urlController.dispose();
-    _keyController.dispose();
+    _apiUrlController.dispose();
+    _apiKeyController.dispose();
     _modelController.dispose();
     super.dispose();
   }
@@ -150,67 +234,114 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
           IconButton(icon: const Icon(Icons.save), onPressed: _saveConfig),
         ],
       ),
-      body: _loading
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
+          : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // API地址
                   TextField(
-                    controller: _urlController,
+                    controller: _apiUrlController,
                     decoration: const InputDecoration(
                       labelText: 'API地址',
                       hintText: 'https://api.sillytaverns.com/v1',
                       border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.link),
                     ),
+                    onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 16),
+
+                  // API Key
                   TextField(
-                    controller: _keyController,
+                    controller: _apiKeyController,
                     decoration: const InputDecoration(
                       labelText: 'API Key',
+                      hintText: 'sk-...',
                       border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.key),
                     ),
                     obscureText: true,
+                    onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 16),
+
+                  // 模型
                   TextField(
                     controller: _modelController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: '模型',
                       hintText: 'gemini-2.5-flash',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.smart_toy),
+                      suffixIcon: IconButton(
+                        icon: _isLoadingModels
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.refresh),
+                        onPressed: _isLoadingModels ? null : _fetchModels,
+                        tooltip: '获取模型列表',
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: _testing ? null : _testApi,
-                    child: _testing
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('测试连接'),
+                  const SizedBox(height: 8),
+
+                  // 模型列表
+                  if (_availableModels.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _availableModels.take(10).map((model) {
+                        return ActionChip(
+                          label: Text(model, style: const TextStyle(fontSize: 12)),
+                          onPressed: () {
+                            setState(() => _modelController.text = model);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    if (_availableModels.length > 10)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text('还有 ${_availableModels.length - 10} 个模型...',
+                            style: TextStyle(color: Colors.grey[600])),
+                      ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // 测试连接按钮
+                  ElevatedButton.icon(
+                    onPressed: _isTesting ? null : _testConnection,
+                    icon: _isTesting
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.play_arrow),
+                    label: Text(_isTesting ? '测试中...' : '测试连接'),
+                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(16)),
                   ),
-                  if (_result != null) ...[
+
+                  // 测试结果
+                  if (_testResult != null) ...[
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: (_success ?? false) ? Colors.green.shade50 : Colors.red.shade50,
+                        color: (_testSuccess ?? false) ? Colors.green.shade50 : Colors.red.shade50,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: (_success ?? false) ? Colors.green : Colors.red),
+                        border: Border.all(color: (_testSuccess ?? false) ? Colors.green : Colors.red),
                       ),
                       child: Row(
                         children: [
                           Icon(
-                            (_success ?? false) ? Icons.check_circle : Icons.error,
-                            color: (_success ?? false) ? Colors.green : Colors.red,
+                            (_testSuccess ?? false) ? Icons.check_circle : Icons.error,
+                            color: (_testSuccess ?? false) ? Colors.green : Colors.red,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              _result!,
+                              _testResult!,
                               style: TextStyle(
-                                color: (_success ?? false) ? Colors.green.shade700 : Colors.red.shade700,
+                                color: (_testSuccess ?? false) ? Colors.green.shade700 : Colors.red.shade700,
                               ),
                             ),
                           ),
