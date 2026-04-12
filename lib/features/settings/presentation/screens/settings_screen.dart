@@ -692,15 +692,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       throw Exception('响应格式错误');
     } on DioException catch (e) {
-      // 如果是 401/403 且有apiKey，可能是key问题
-      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
-        throw Exception('API Key无效或无权限');
+      // 详细错误诊断
+      final statusCode = e.response?.statusCode;
+      final reason = e.response?.statusMessage ?? e.message ?? '未知';
+      final data = e.response?.data?.toString() ?? '';
+      
+      String message;
+      if (statusCode == 401 || statusCode == 403) {
+        message = '认证失败 (HTTP $statusCode)\nAPI Key无效或无权限';
+      } else if (statusCode == 404) {
+        message = '端点不存在 (HTTP 404)\n$endpoint';
+      } else if (statusCode == 429) {
+        message = '请求过于频繁 (HTTP 429)\n请稍后重试';
+      } else if (statusCode != null && statusCode >= 500) {
+        message = '服务器错误 (HTTP $statusCode)\n$reason';
+      } else if (e.type == DioExceptionType.connectionTimeout) {
+        message = '连接超时\n请检查网络或API地址是否正确';
+      } else if (e.type == DioExceptionType.connectionError) {
+        message = '连接错误\n无法连接到服务器';
+      } else {
+        message = '请求失败 (HTTP ${statusCode ?? "?"})\n$reason\n$data';
       }
-      // 如果是404，可能是端点问题
-      if (e.response?.statusCode == 404) {
-        throw Exception('API端点不存在: $endpoint');
-      }
-      rethrow;
+      throw Exception(message);
     }
   }
 
