@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/di/injection.dart';
 
 /// 浏览器User-Agent，用于绕过Cloudflare等WAF的检测
 const _browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -22,6 +24,8 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
   String? _modelsError;
   bool _isLoading = true;
 
+  final _secureStorage = const FlutterSecureStorage();
+
   @override
   void initState() {
     super.initState();
@@ -29,16 +33,22 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
+    // 从 FlutterSecureStorage 读取（与 injection.dart 保持一致）
+    _apiUrlController.text = await _secureStorage.read(key: 'ai_base_url') ?? 'https://api.siliconflow.cn';
+    _apiKeyController.text = await _secureStorage.read(key: 'ai_api_key') ?? '';
+    // 也兼容旧 SharedPreferences key
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _apiUrlController.text = prefs.getString('api_url') ?? 'https://api.sillytaverns.com/v1';
-      _apiKeyController.text = prefs.getString('api_key') ?? '';
-      _selectedModel = prefs.getString('api_model');
-      _isLoading = false;
-    });
+    _selectedModel = prefs.getString('api_model');
+    setState(() => _isLoading = false);
   }
 
   Future<void> _saveSettings() async {
+    // 写入 FlutterSecureStorage（与 injection.dart 读取的 key 一致）
+    await _secureStorage.write(key: 'ai_base_url', value: _apiUrlController.text.trim());
+    await _secureStorage.write(key: 'ai_api_key', value: _apiKeyController.text.trim());
+    await _secureStorage.write(key: 'ai_provider', value: _isCustomUrl(_apiUrlController.text) ? 'custom' : 'siliconflow');
+
+    // 保留旧 key 兼容
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('api_url', _apiUrlController.text.trim());
     await prefs.setString('api_key', _apiKeyController.text.trim());
@@ -46,11 +56,18 @@ class _ApiConfigScreenState extends State<ApiConfigScreen> {
       await prefs.setString('api_model', _selectedModel!);
     }
 
+    // 重新初始化 AI Repository
+    await reinitAIRepository();
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ 配置已保存'), backgroundColor: Colors.green),
       );
     }
+  }
+
+  bool _isCustomUrl(String url) {
+    return !url.contains('siliconflow.cn') && !url.contains('openai.com');
   }
 
   Future<void> _fetchModels() async {
