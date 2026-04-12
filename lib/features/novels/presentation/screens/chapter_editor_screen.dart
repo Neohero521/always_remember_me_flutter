@@ -3,10 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/novel.dart';
 import '../../domain/models/chapter.dart';
 import '../../domain/models/chapter_graph.dart';
-import '../../domain/models/chapter_knowledge_graph.dart';
 import '../providers/novel_providers.dart';
 import '../../../writing/domain/usecases/writing_usecases.dart';
-import '../../../writing/domain/repositories/ai_repository.dart';
 import '../../domain/models/writing_config.dart';
 import '../../../../app/theme/app_theme.dart';
 

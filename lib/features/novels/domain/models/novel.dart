@@ -1,5 +1,4 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'chapter.dart';
 
 part 'novel.freezed.dart';
 part 'novel.g.dart';

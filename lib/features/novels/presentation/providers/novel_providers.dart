@@ -1,8 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/novel.dart';
 import '../../domain/models/chapter.dart';
-import '../../domain/models/chapter_knowledge_graph.dart';
-import '../../domain/models/character_profile.dart';
 import '../../domain/repositories/novel_repository.dart';
 import '../../domain/repositories/chapter_repository.dart';
 import '../../domain/repositories/graph_repository.dart';

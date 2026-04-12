@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/novel.dart';
 import '../../domain/models/chapter.dart';
-import '../../domain/models/chapter_knowledge_graph.dart';
 import '../providers/novel_providers.dart';
 import '../../domain/usecases/graph_usecases.dart';
 import 'chapter_editor_screen.dart';
